@@ -3,11 +3,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>priv.wjf.project</groupId>
-  <artifactId>SparkNewsDataMining</artifactId>
+  <artifactId>SparkNewsEventDetection</artifactId>
   <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>SparkNewsDataMining</name>
+  <name>SparkNewsEventDetection</name>
   <url>http://maven.apache.org</url>
 
   <properties>
