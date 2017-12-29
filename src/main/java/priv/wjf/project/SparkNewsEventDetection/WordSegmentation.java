@@ -1,4 +1,4 @@
-package priv.wjf.project.SparkNewsDataMining;
+package priv.wjf.project.SparkNewsEventDetection;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -20,7 +20,7 @@ import org.wltea.analyzer.lucene.IKAnalyzer;
 
 public class WordSegmentation 
 {
-	private static String prefixPath = "/home/wjf/JavaProject/SparkNewsDataMining/";
+	private static String prefixPath = "/home/wjf/JavaProject/SparkNewsEventDetection/";
 	
 	/**
 	 * 使用FNLP分词
@@ -33,7 +33,7 @@ public class WordSegmentation
 		String[] words = null;
 		try {
 			// 创建中文处理工厂对象，并使用“models”目录下的模型文件初始化
-			factory = CNFactory.getInstance(prefixPath + "lib/models/weibo_seg", Models.SEG);
+			factory = CNFactory.getInstance(prefixPath + "lib/models/pku_seg", Models.SEG);
 
 			// 使用分词器对中文句子进行分词，得到分词结果
 	     	words = factory.seg(content);

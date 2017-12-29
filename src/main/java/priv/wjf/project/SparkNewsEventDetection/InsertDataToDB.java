@@ -1,4 +1,4 @@
-package priv.wjf.project.SparkNewsDataMining;
+package priv.wjf.project.SparkNewsEventDetection;
 
 import java.io.StringReader;
 import java.util.Arrays;
@@ -22,13 +22,13 @@ public class InsertDataToDB
 {
 	private static SparkConf conf;
 	private static JavaSparkContext sc;
-	private static String prefixPath = "file:///home/wjf/JavaProject/SparkNewsDataMining/";
+	private static String prefixPath = "file:///home/wjf/JavaProject/SparkNewsEventDetection/";
 	private static String inputFile = prefixPath + "data/deduplicatedNews.csv";
 	
 	static
 	{
 		conf = new SparkConf()
-				.setAppName("SparkNewsDataMining")
+				.setAppName("SparkNewsEventDetection")
 				.setMaster("local")
 				.set("com.couchbase.bucket.newsDataMining", "");
 		
