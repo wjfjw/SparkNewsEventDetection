@@ -21,82 +21,33 @@ import org.apache.spark.mllib.linalg.distributed.RowMatrix;
 public class FeatureExtraction 
 {
 	
-	private static SparkConf conf;
-	private static JavaSparkContext sc;
-//	private static SQLContext sqlContext;
-	
-	static
+	public static JavaRDD<Vector> getTfidfRDD(int dimension, JavaRDD<List<String>> segmentedLines)
 	{
-		conf = new SparkConf()
-				.setAppName("SparkNewsEventDetection")
-				.setMaster("local")
-				;
-		
-		sc = new JavaSparkContext(conf);
-//		sqlContext = new SQLContext(sc);
-	}
-
-	public static void main(String[] args) 
-	{
-		JavaRDD<String> lines = sc.parallelize( Arrays.asList(
-				"在实践中形成了以新发展理念为主要内容的习近平新时代中国特色社会主义经济思想",
-				"在习近平新时代中国特色社会主义经济思想引领下，中国经济发展进入了新时代，由高速增长阶段转向高质量发展阶段",
-				"2018考研数学出现 “神押题”，考生怀疑发生泄题。"
-				) );
-		JavaRDD<List<String>> segmentedLines = lines.map( (String line)-> {
-			return WordSegmentation.FNLPSegment(line);
-		});
-		
-		//输出分词结果
-		System.out.println("\n++++++++++++++++++++++++++++++++");
-		for(List<String> list : segmentedLines.collect()) {
-			System.out.println(list);
-		}
-		System.out.println("++++++++++++++++++++++++++++++++\n");
-		
 		//tf
-		HashingTF hashingTF = new HashingTF(50);
+		HashingTF hashingTF = new HashingTF(dimension);
 		JavaRDD<Vector> tf =  hashingTF.transform(segmentedLines);
 		tf.cache();
 		
 		//idf
 		IDF idf = new IDF();
 		IDFModel idfModel = idf.fit(tf);
-		JavaRDD<Vector> tfidf =  idfModel.transform(tf);
+		JavaRDD<Vector> tfidfRDD = idfModel.transform(tf);
 		
-		//输出特征向量
-		List<Vector> tfidfVectors = tfidf.collect();
-		System.out.println("\n*********************************");
-		System.out.println("特征向量");
-		for(Vector v : tfidfVectors) {
-			System.out.println(v);
-		}
-		System.out.println("*********************************\n");
-		
-		//计算特征向量之间的相似度
-		computeVectorSimilarity(tfidfVectors);	
-		
-		
-		//PCA
-		RowMatrix rowMatrix = new RowMatrix(tfidf.rdd());
-		Matrix pc = rowMatrix.computePrincipalComponents(5);
-		RowMatrix dimreducedMatrix = rowMatrix.multiply(pc);
-		List<Vector> pcaVectors = dimreducedMatrix.rows().toJavaRDD().collect();
-		
-		//输出PCA降维后的特征向量
-		System.out.println("\n*********************************");
-		System.out.println("PCA降维后的特征向量");
-		for(Vector v : pcaVectors) {
-			System.out.println(v);
-		}
-		System.out.println("*********************************\n");
-		
-		//计算特征向量之间的相似度
-		computeVectorSimilarity(pcaVectors);
-		
+		return tfidfRDD;
 	}
 	
-	private static void computeVectorSimilarity(List<Vector> vectors) 
+	public static JavaRDD<Vector> getPCARDD(JavaRDD<Vector> tfidfRDD)
+	{
+		//PCA
+		RowMatrix rowMatrix = new RowMatrix( tfidfRDD.rdd() );
+		Matrix pc = rowMatrix.computePrincipalComponents(5);
+		RowMatrix dimreducedMatrix = rowMatrix.multiply(pc);
+		JavaRDD<Vector> pcaRDD = dimreducedMatrix.rows().toJavaRDD();
+		
+		return pcaRDD;
+	}
+	
+	public static void computeVectorSimilarity(JavaSparkContext sc, List<Vector> vectors) 
 	{
 		//计算特征向量之间的相似度
 		List<IndexedRow> indexedRows = new ArrayList<IndexedRow>();
