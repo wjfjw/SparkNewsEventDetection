@@ -1,7 +1,10 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
@@ -43,7 +46,29 @@ public class App
 		int numClusters = 10;
 	    int numIterations = 30; 
 		KMeansModel kMeansModel = KMeans.train(tfidfRDD.rdd(), numClusters, numIterations);
+		JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( tfidfRDD );
 		
+		//输出聚类结果
+		List<Integer> clusterResult = clusterResultRDD.collect();
+		Map<Integer, List<Integer>> clusterMap = new HashMap<Integer, List<Integer>>();
+		for(int i=0 ; i<clusterResult.size() ; ++i) {
+			int clusterId = clusterResult.get(i);
+			if(clusterMap.containsKey(clusterId)) {
+				clusterMap.get(clusterId).add(i+1);
+			}else {
+				clusterMap.put(clusterId, new ArrayList<Integer>(
+						Arrays.asList(i+1)));
+			}
+		}
+		System.out.println("\n*********************************");
+		for(int clusterId : clusterMap.keySet()) {
+			System.out.print("[" + clusterId + ": ");
+			for(int vectorId : clusterMap.get(clusterId)) {
+				System.out.print(vectorId + ",");
+			}
+			System.out.println("]");
+		}
+		System.out.println("*********************************\n");
 		
 //		//输出分词结果
 //		System.out.println("\n++++++++++++++++++++++++++++++++");
