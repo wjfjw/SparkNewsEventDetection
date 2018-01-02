@@ -31,19 +31,22 @@ public class App
 	public static void main(String[] args) 
 	{
 		//分词
-		JavaRDD<String> lines = sc.parallelize( Arrays.asList(
-				"在实践中形成了以新发展理念为主要内容的习近平新时代中国特色社会主义经济思想",
-				"在习近平新时代中国特色社会主义经济思想引领下，中国经济发展进入了新时代，由高速增长阶段转向高质量发展阶段",
-				"2018考研数学出现 “神押题”，考生怀疑发生泄题。"
-				) );
+//		JavaRDD<String> lines = sc.parallelize( Arrays.asList(
+//				"在实践中形成了以新发展理念为主要内容的习近平新时代中国特色社会主义经济思想",
+//				"在习近平新时代中国特色社会主义经济思想引领下，中国经济发展进入了新时代，由高速增长阶段转向高质量发展阶段",
+//				"2018考研数学出现 “神押题”，考生怀疑发生泄题。"
+//				) );
+		
+		JavaRDD<String> lines = sc.textFile("/home/wjf/JavaProject/SparkNewsEventDetection/data/20120605_deduplicate.csv");
 		JavaRDD<List<String>> segmentedLines = lines.map( (String line)-> {
+			line = line.replaceFirst("\\d+^", "");
 			return WordSegmentation.FNLPSegment(line);
 		});
 		
-		JavaRDD<Vector> tfidfRDD = FeatureExtraction.getTfidfRDD(500, segmentedLines);
+		JavaRDD<Vector> tfidfRDD = FeatureExtraction.getTfidfRDD(300, segmentedLines);
 		
 		//KMeans
-		int numClusters = 10;
+		int numClusters = 100;
 	    int numIterations = 30; 
 		KMeansModel kMeansModel = KMeans.train(tfidfRDD.rdd(), numClusters, numIterations);
 		JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( tfidfRDD );
