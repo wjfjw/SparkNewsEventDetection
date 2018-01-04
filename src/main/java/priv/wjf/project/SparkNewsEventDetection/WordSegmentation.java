@@ -3,9 +3,7 @@ package priv.wjf.project.SparkNewsEventDetection;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
-import java.net.URL;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import org.apache.lucene.analysis.Analyzer;
@@ -13,6 +11,7 @@ import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.fnlp.nlp.cn.CNFactory;
 import org.fnlp.nlp.cn.CNFactory.Models;
+import org.fnlp.nlp.corpus.StopWords;
 import org.fnlp.util.exception.LoadModelException;
 import org.wltea.analyzer.core.IKSegmenter;
 import org.wltea.analyzer.core.Lexeme;
@@ -20,7 +19,18 @@ import org.wltea.analyzer.lucene.IKAnalyzer;
 
 public class WordSegmentation 
 {
-	private static String prefixPath = "/home/wjf/JavaProject/SparkNewsEventDetection/";
+	private static String modelPath = "/home/wjf/JavaProject/SparkNewsEventDetection/lib/models/pku_seg";
+	private static String stopWordsPath = "/home/wjf/JavaProject/SparkNewsEventDetection/lib/models/stopwords/StopWords.txt";
+	private static CNFactory factory;
+	
+	static {
+		try {
+			// 创建中文处理工厂对象，并使用“models”目录下的模型文件初始化
+			factory = CNFactory.getInstance(modelPath, Models.SEG);
+		} catch (LoadModelException e) {
+			e.printStackTrace();
+		}
+	}
 	
 	/**
 	 * 使用FNLP分词
@@ -29,19 +39,14 @@ public class WordSegmentation
 	 */
 	public static List<String> FNLPSegment(String content)
 	{
-		CNFactory factory = null;
-		String[] words = null;
-		try {
-			// 创建中文处理工厂对象，并使用“models”目录下的模型文件初始化
-			factory = CNFactory.getInstance(prefixPath + "lib/models/pku_seg", Models.SEG);
+		// 使用分词器对中文句子进行分词，得到分词结果
+		String[] words = factory.seg(content);
+		
+		//去停用词
+		StopWords sw = new StopWords(stopWordsPath);
+     	List<String> wordList = sw.phraseDel(words);
 
-			// 使用分词器对中文句子进行分词，得到分词结果
-	     	words = factory.seg(content);
-	     	
-		} catch (LoadModelException e) {
-			e.printStackTrace();
-		}
-		return Arrays.asList(words);
+		return wordList;
 	}
 	
 	/**

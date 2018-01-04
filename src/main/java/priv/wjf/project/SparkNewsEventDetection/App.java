@@ -12,6 +12,7 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
+import org.apache.spark.mllib.linalg.Vectors;
 
 public class App 
 {
@@ -43,12 +44,13 @@ public class App
 			return WordSegmentation.FNLPSegment(line);
 		});
 		
-		JavaRDD<Vector> tfidfRDD = FeatureExtraction.getTfidfRDD(300, segmentedLines);
+		JavaRDD<Vector> tfidfRDD = FeatureExtraction.getTfidfRDD(500, segmentedLines);
 		
 		//KMeans
-		int numClusters = 100;
+		int numClusters = 200;
 	    int numIterations = 30; 
-		KMeansModel kMeansModel = KMeans.train(tfidfRDD.rdd(), numClusters, numIterations);
+	    int runs = 3;
+		KMeansModel kMeansModel = KMeans.train(tfidfRDD.rdd(), numClusters, numIterations, runs);
 		JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( tfidfRDD );
 		
 		//输出聚类结果
