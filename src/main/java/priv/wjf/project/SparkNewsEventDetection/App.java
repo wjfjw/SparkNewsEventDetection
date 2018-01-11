@@ -11,6 +11,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
+import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
 
@@ -32,26 +33,29 @@ public class App
 	public static void main(String[] args) 
 	{
 		//分词
-//		JavaRDD<String> lines = sc.parallelize( Arrays.asList(
-//				"在实践中形成了以新发展理念为主要内容的习近平新时代中国特色社会主义经济思想",
-//				"在习近平新时代中国特色社会主义经济思想引领下，中国经济发展进入了新时代，由高速增长阶段转向高质量发展阶段",
-//				"2018考研数学出现 “神押题”，考生怀疑发生泄题。"
-//				) );
-		
-		JavaRDD<String> lines = sc.textFile("/home/wjf/JavaProject/SparkNewsEventDetection/data/20120605_deduplicate.csv");
+		JavaRDD<String> lines = sc.textFile("/home/wjf/Data/de-duplicate/de-duplicated/201711/category/20171101gn.csv");
 		JavaRDD<List<String>> segmentedLines = lines.map( (String line)-> {
-			line = line.replaceFirst("\\d+^", "");
+			line = line.replaceFirst("\\d+,\\d+,.+,\\w{2},.+,.+,", "");
 			return WordSegmentation.FNLPSegment(line);
 		});
 		
-		JavaRDD<Vector> tfidfRDD = FeatureExtraction.getTfidfRDD(500, segmentedLines);
+		//tf-idf特征向量
+		JavaRDD<Vector> featureRDD = FeatureExtraction.getTfidfRDD(2000, segmentedLines);
+		
+		//特征降维
+		featureRDD = FeatureExtraction.getPCARDD(featureRDD, 200);
+		
+		//归一化
+		Normalizer normalizer = new Normalizer();
+		featureRDD = normalizer.transform(featureRDD);
+
 		
 		//KMeans
 		int numClusters = 200;
-	    int numIterations = 30; 
+	    int numIterations = 20; 
 	    int runs = 3;
-		KMeansModel kMeansModel = KMeans.train(tfidfRDD.rdd(), numClusters, numIterations, runs);
-		JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( tfidfRDD );
+		KMeansModel kMeansModel = KMeans.train(featureRDD.rdd(), numClusters, numIterations, runs);
+		JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( featureRDD );
 		
 		//输出聚类结果
 		List<Integer> clusterResult = clusterResultRDD.collect();

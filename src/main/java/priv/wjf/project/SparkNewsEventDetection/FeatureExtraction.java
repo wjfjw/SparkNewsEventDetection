@@ -36,11 +36,11 @@ public class FeatureExtraction
 		return tfidfRDD;
 	}
 	
-	public static JavaRDD<Vector> getPCARDD(JavaRDD<Vector> tfidfRDD)
+	public static JavaRDD<Vector> getPCARDD(JavaRDD<Vector> tfidfRDD, int pcNum)
 	{
 		//PCA
 		RowMatrix rowMatrix = new RowMatrix( tfidfRDD.rdd() );
-		Matrix pc = rowMatrix.computePrincipalComponents(5);
+		Matrix pc = rowMatrix.computePrincipalComponents(pcNum);
 		RowMatrix dimreducedMatrix = rowMatrix.multiply(pc);
 		JavaRDD<Vector> pcaRDD = dimreducedMatrix.rows().toJavaRDD();
 		
