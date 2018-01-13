@@ -1,5 +1,6 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
+import java.util.Calendar;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -30,15 +31,38 @@ public class SinglePassClustering
 				maxSimCluster.addVector(feature);
 				maxSimCluster.resetCenterVector();
 			}
-			//
+			//否则，根据该新闻创建一个新的cluster，并加入到queue中
 			else {
-				
+				Cluster c = new Cluster(feature, time);
+				Cluster frontCluster = queue.peek();
+				long interval = 
+				if(frontCluster.getTime())
+				queue.add(c);
 			}
 			
 		}
 	}
 	
 	
+	private static long getInterval(long start, long end) {
+		long startDay = start / 10000;
+		long endDay = end / 10000;
+		long diffDays = endDay - startDay;
+		
+		long year = start / 100000000;
+		long month = (start % 100000000) / 1000000;
+		long day = (start % 1000000) / 10000;
+		
+		Calendar startTime = Calendar.getInstance();
+		startTime.set(year, month, date, hourOfDay, minute);
+	}
+	
+	/**时间例子
+	 *  201711010000
+		201711012359
+		201711020000
+		201711022359
+	 */
 	
 	
 	/**
@@ -54,7 +78,6 @@ public class SinglePassClustering
 		
 		return getDotProduct(normV1, normV2);
 	}
-	
 	
 	/**
 	 * 获取两个向量的数量积（点积）
