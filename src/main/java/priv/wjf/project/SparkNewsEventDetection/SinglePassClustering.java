@@ -9,6 +9,14 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.Vector;
 
+/**
+ * 问题：1.新闻编号、时间等元素
+ * 		2.数据库中cluster的存储
+ * 		3.数据库中新闻的存储
+ * @author wjf
+ *
+ */
+
 public class SinglePassClustering 
 {
 	public static void singlePass(JavaRDD<Vector> featureRDD, double simThreshold) 
@@ -34,9 +42,12 @@ public class SinglePassClustering
 			//否则，根据该新闻创建一个新的cluster，并加入到queue中
 			else {
 				Cluster c = new Cluster(feature, time);
-				Cluster frontCluster = queue.peek();
-				long interval = 
-				if(frontCluster.getTime())
+				//将queue中超过时间窗口的cluster移出
+				while(!queue.isEmpty()) {
+					if( !withinTimeWindow(queue.peek().getTime(), c.getTime()) ) {
+						queue.poll();
+					}
+				}
 				queue.add(c);
 			}
 			
@@ -44,25 +55,32 @@ public class SinglePassClustering
 	}
 	
 	
-	private static long getInterval(long start, long end) {
-		long startDay = start / 10000;
-		long endDay = end / 10000;
-		long diffDays = endDay - startDay;
+	private static boolean withinTimeWindow(long startTime, long endTime) {
+		//起始日期
+		long year = startTime / 100000000;
+		long month = (startTime % 100000000) / 1000000;
+		long date = (startTime % 1000000) / 10000;
+		long hourOfDay = (startTime % 10000) / 100;
+		long minute = startTime % 100;
+		Calendar startCalendar = Calendar.getInstance();
+		startCalendar.set((int)year, (int)month-1, (int)date, (int)hourOfDay, (int)minute);
 		
-		long year = start / 100000000;
-		long month = (start % 100000000) / 1000000;
-		long day = (start % 1000000) / 10000;
+		//结束日期
+		year = endTime / 100000000;
+		month = (endTime % 100000000) / 1000000;
+		date = (endTime % 1000000) / 10000;
+		hourOfDay = (endTime % 10000) / 100;
+		minute = endTime % 100;
+		Calendar endCalendar = Calendar.getInstance();
+		endCalendar.set((int)year, (int)month-1, (int)date, (int)hourOfDay, (int)minute);
 		
-		Calendar startTime = Calendar.getInstance();
-		startTime.set(year, month, date, hourOfDay, minute);
+		long milliseconds = endCalendar.getTimeInMillis() - startCalendar.getTimeInMillis();
+		//一天的毫秒数为86400005
+		if(milliseconds > 86400005) {
+			return false;
+		}
+		return true;
 	}
-	
-	/**时间例子
-	 *  201711010000
-		201711012359
-		201711020000
-		201711022359
-	 */
 	
 	
 	/**
