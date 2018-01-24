@@ -1,13 +1,15 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 
 import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.Vector;
+
+import breeze.linalg.max;
 
 /**
  * 问题：1.新闻编号、时间等元素
@@ -19,43 +21,63 @@ import org.apache.spark.mllib.linalg.Vector;
 
 public class SinglePassClustering 
 {
-	public static void singlePass(JavaRDD<Vector> featureRDD, double simThreshold) 
+	public static List<Cluster> singlePass(JavaRDD<Vector> featureRDD, List<String> idList , double simThreshold) 
 	{
-		Queue<Cluster> queue = new LinkedList<Cluster>();
 		List<Vector> featureList = featureRDD.collect();
-		Cluster maxSimCluster = null;
-		double maxSim = Double.NEGATIVE_INFINITY;
 		
-		for(Vector feature : featureList) {
+		List<Cluster> resultClusterList = new ArrayList<Cluster>();
+		Queue<Cluster> queue = new LinkedList<Cluster>();
+		Cluster maxSimCluster = null;
+		
+		for(int i=0 ; i<featureList.size() ; ++i) {
+			double maxSim = Double.NEGATIVE_INFINITY;
+			Vector feature = featureList.get(i);
+			String id = idList.get(i);
+			long time = Long.parseLong(id.substring(0, 12));
+			
 			for(Cluster cluster : queue) {
-				double sim = getCosineSimilarity(feature, cluster.getCenterVector());
+				double sim = Similarity.getCosineSimilarity(feature, cluster.getCenterVector());
 				if(sim > maxSim) {
 					maxSim = sim;
 					maxSimCluster = cluster;
 				}
 			}
+			
 			//如果最大相似度大于simThreshold，则将该新闻加入对应的cluster
 			if(maxSim > simThreshold) {
 				maxSimCluster.addVector(feature);
 				maxSimCluster.resetCenterVector();
+				maxSimCluster.addId(id);
 			}
 			//否则，根据该新闻创建一个新的cluster，并加入到queue中
 			else {
-				Cluster c = new Cluster(feature, time);
-				//将queue中超过时间窗口的cluster移出
-				while(!queue.isEmpty()) {
-					if( !withinTimeWindow(queue.peek().getTime(), c.getTime()) ) {
-						queue.poll();
-					}
+				Cluster c = new Cluster(feature, id, time);
+				
+				//将queue中超过时间窗口的cluster移出，并加到resultClusterList中
+				//一天的毫秒数为86400005
+				while(!queue.isEmpty()
+						&& !withinTimeWindow(queue.peek().getTime(), c.getTime(), 86400005)) {
+						resultClusterList.add( queue.poll() );
 				}
 				queue.add(c);
 			}
-			
 		}
+		
+		//将queue中剩余的Cluster加到结果list中
+		while( !queue.isEmpty() ) {
+			resultClusterList.add( queue.poll() );
+		}
+		return resultClusterList;
 	}
 	
-	
-	private static boolean withinTimeWindow(long startTime, long endTime) {
+	/**
+	 * 
+	 * @param startTime 
+	 * @param endTime
+	 * @param windowTime 时间窗口，毫秒
+	 * @return startTime是否在时间窗口内
+	 */
+	private static boolean withinTimeWindow(long startTime, long endTime, long windowTime) {
 		//起始日期
 		long year = startTime / 100000000;
 		long month = (startTime % 100000000) / 1000000;
@@ -75,46 +97,11 @@ public class SinglePassClustering
 		endCalendar.set((int)year, (int)month-1, (int)date, (int)hourOfDay, (int)minute);
 		
 		long milliseconds = endCalendar.getTimeInMillis() - startCalendar.getTimeInMillis();
-		//一天的毫秒数为86400005
-		if(milliseconds > 86400005) {
+		
+		if(milliseconds > windowTime) {
 			return false;
 		}
 		return true;
 	}
 	
-	
-	/**
-	 * 获取两个向量的余弦相似度
-	 * @param v1
-	 * @param v2
-	 * @return v1和v2的余弦相似度
-	 */
-	private static double getCosineSimilarity(Vector v1, Vector v2) {
-		Normalizer normalizer = new Normalizer();
-		Vector normV1 = normalizer.transform(v1);
-		Vector normV2 = normalizer.transform(v2);
-		
-		return getDotProduct(normV1, normV2);
-	}
-	
-	/**
-	 * 获取两个向量的数量积（点积）
-	 * @param v1
-	 * @param v2
-	 * @return v1和v2的数量积（点积）
-	 */
-	private static double getDotProduct(Vector v1, Vector v2) {
-		if(v1.size() != v2.size()) {
-			return 0;
-		}
-		int size = v1.size();
-		double sum = 0;
-		double[] a1 = v1.toArray();
-		double[] a2 = v2.toArray();
-		for(int i=0 ; i<size ; ++i) {
-			sum += (a1[i]*a2[i]);
-		}
-		
-		return sum;
-	}
 }

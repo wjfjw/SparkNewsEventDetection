@@ -19,16 +19,12 @@ public class Test {
 		
 		JavaSparkContext sc = new JavaSparkContext(conf);
 		
-		JavaRDD<Integer> rdd = sc.parallelize( Arrays.asList(1, 2, 3) );
 		
-		List<Integer> list =  rdd.take(1);
-		System.out.println("\n*********************************");
-		System.out.println(list);
-		System.out.println("*********************************\n");
 		
-		list =  rdd.top(1);
+		
+		
 		System.out.println("\n*********************************");
-		System.out.println(list);
+		System.out.println();
 		System.out.println("*********************************\n");
 	}
 

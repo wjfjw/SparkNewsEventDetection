@@ -1,6 +1,7 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.spark.api.java.JavaPairRDD;
@@ -11,18 +12,19 @@ import org.apache.spark.mllib.linalg.Vectors;
 public class Cluster 
 {
 	private List<Vector> vectorList;
+	private List<String> idList;
 	private Vector centerVector;
 	private long time;
 	
-	public Cluster(Vector v, long time) {
+	public Cluster(Vector v, String id, long time) {
 		vectorList = new ArrayList<Vector>();
 		vectorList.add(v);
+		idList = new ArrayList<String>();
+		idList.add(id);
 		this.centerVector = v;
 		this.time = time;
 	}
-	
-	
-	
+
 	
 	public long getTime() {
 		return time;
@@ -34,6 +36,14 @@ public class Cluster
 	
 	public void addVector(Vector v) {
 		vectorList.add(v);
+	}
+	
+	public void addId(String id) {
+		idList.add(id);
+	}
+	
+	public List<String> getIdList(){
+		return idList;
 	}
 	
 	public void resetCenterVector() {
@@ -54,6 +64,6 @@ public class Cluster
 			sumArray[i] /= vectorList.size();
 		}
 		
-		centerVector = new DenseVector(sumArray);
+		centerVector = new DenseVector(sumArray).toSparse();
 	}
 }
