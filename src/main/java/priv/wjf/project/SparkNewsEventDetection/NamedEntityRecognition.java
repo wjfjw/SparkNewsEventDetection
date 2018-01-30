@@ -33,7 +33,7 @@ public class NamedEntityRecognition
      	nerResult.put("place", new ArrayList<String>());
      	nerResult.put("person", new ArrayList<String>());
      	nerResult.put("organization", new ArrayList<String>());
-     	nerResult.put("entity", new ArrayList<String>());
+     	nerResult.put("otherEntity", new ArrayList<String>());
      	
      	Map<Integer, String> sortedNer = new TreeMap<Integer, String>();
      	for(String key : result.keySet()) {
@@ -54,7 +54,7 @@ public class NamedEntityRecognition
      			nerResult.get("organization").add(entity);
      			break;
      		case "实体名":
-     			nerResult.get("entity").add(entity);
+     			nerResult.get("otherEntity").add(entity);
      			break;
      		default:
      			break;

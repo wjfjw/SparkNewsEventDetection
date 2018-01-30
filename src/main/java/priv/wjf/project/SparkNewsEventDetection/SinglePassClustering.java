@@ -6,10 +6,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.mllib.linalg.Vector;
-
-import breeze.linalg.max;
 
 /**
  * 问题：1.新闻编号、时间等元素
@@ -21,22 +18,20 @@ import breeze.linalg.max;
 
 public class SinglePassClustering 
 {
-	public static List<Cluster> singlePass(JavaRDD<Vector> featureRDD, List<String> idList , double simThreshold) 
+	public static List<Cluster> singlePass(List<NewsFeature> featureList , double simThreshold) 
 	{
-		List<Vector> featureList = featureRDD.collect();
-		
 		List<Cluster> resultClusterList = new ArrayList<Cluster>();
 		Queue<Cluster> queue = new LinkedList<Cluster>();
 		Cluster maxSimCluster = null;
 		
-		for(int i=0 ; i<featureList.size() ; ++i) {
+		for(NewsFeature feature : featureList) {
 			double maxSim = Double.NEGATIVE_INFINITY;
-			Vector feature = featureList.get(i);
-			String id = idList.get(i);
+			Vector vector = feature.getVector();
+			String id = feature.getId();
 			long time = Long.parseLong(id.substring(0, 12));
 			
 			for(Cluster cluster : queue) {
-				double sim = Similarity.getCosineSimilarity(feature, cluster.getCenterVector());
+				double sim = Similarity.getCosineSimilarity(vector, cluster.getCenterVector());
 				if(sim > maxSim) {
 					maxSim = sim;
 					maxSimCluster = cluster;
@@ -45,13 +40,12 @@ public class SinglePassClustering
 			
 			//如果最大相似度大于simThreshold，则将该新闻加入对应的cluster
 			if(maxSim > simThreshold) {
-				maxSimCluster.addVector(feature);
+				maxSimCluster.addFeature(feature);
 				maxSimCluster.resetCenterVector();
-				maxSimCluster.addId(id);
 			}
 			//否则，根据该新闻创建一个新的cluster，并加入到queue中
 			else {
-				Cluster c = new Cluster(feature, id, time);
+				Cluster c = new Cluster(vector, id, time);
 				
 				//将queue中超过时间窗口的cluster移出，并加到resultClusterList中
 				//一天的毫秒数为86400005

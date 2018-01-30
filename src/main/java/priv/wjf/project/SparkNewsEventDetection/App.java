@@ -1,7 +1,5 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
-import static com.couchbase.spark.japi.CouchbaseDocumentRDD.couchbaseDocumentRDD;
-
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,6 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.clustering.KMeans;
@@ -20,89 +19,116 @@ import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
+import org.apache.spark.sql.Row;
 
+import com.couchbase.client.java.Bucket;
+import com.couchbase.client.java.CouchbaseCluster;
 import com.couchbase.client.java.document.JsonDocument;
 import com.couchbase.client.java.document.json.JsonObject;
+import com.couchbase.client.java.query.N1qlQuery;
+import com.couchbase.client.java.query.Statement;
+import com.couchbase.client.java.query.dsl.Sort;
+import com.couchbase.client.java.query.dsl.path.AsPath;
+import com.couchbase.spark.japi.CouchbaseSparkContext;
+import com.couchbase.spark.rdd.CouchbaseQueryRow;
+
+import static com.couchbase.client.java.query.Select.select;
+import static com.couchbase.client.java.query.dsl.Expression.i;
+import static com.couchbase.client.java.query.dsl.Expression.s;
+import static com.couchbase.client.java.query.dsl.Expression.x;
 
 import au.com.bytecode.opencsv.CSVReader;
+import scala.Tuple2;
 
 public class App 
 {
 	private static SparkConf conf;
 	private static JavaSparkContext sc;
+	private static CouchbaseSparkContext csc;
 	private static double singlePassThreshold = 0.2;
+	private static final String bucketName = "newsEventDetection";
 	
 	static
 	{
 		conf = new SparkConf()
 				.setAppName("SparkNewsEventDetection")
 				.setMaster("local")
-				;
+				.set("com.couchbase.bucket." + bucketName, "");
 		
 		sc = new JavaSparkContext(conf);
+		csc = CouchbaseSparkContext.couchbaseContext(sc);
 	}
 
 	public static void main(String[] args) 
 	{
+		// Initialize the Connection
+		com.couchbase.client.java.Cluster cluster = CouchbaseCluster.create("localhost");
+		Bucket bucket = cluster.openBucket(bucketName);
+		
+		//进行新闻事件检测
+		detecteEvent();
+        
+        //断开数据库连接
+        bucket.close();
+        cluster.disconnect();
+	}
+	
+	
+	private static void detecteEvent() 
+	{
 		//新闻格式：id，title,category,url,source,content
 		
-		List<String> idList = new ArrayList<String>();
-		List<String> contentList = new ArrayList<String>();
-		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
+		//从Couchbase中读取由新闻id和content构成的newsRDD
+		Statement statement = select("n.id", "n.content")
+				.from(i(bucketName).as("n"))
+				.where( x("category").eq(s("gn")).and( x("id").between( s("20171101000001").and(s("20171101235999")) ) ) )
+				.orderBy(Sort.asc("n.id"));
+		N1qlQuery query = N1qlQuery.simple(statement);
+		JavaRDD<CouchbaseQueryRow> newsRDD = csc.couchbaseQuery(query);
 		
 		
-		//读取CSV文件中的数据
-		JavaRDD<String> csvData = sc.textFile("/home/wjf/Data/de-duplicate/201711/category/20171101gn.csv");
 		
-		//提取新闻的各个属性
-		JavaRDD<String[]> newsDataRDD = csvData.map((String line)-> {
-			return new CSVReader(new StringReader(line) , ',').readNext();
+		//新闻id和content构成的newsPairRDD
+		JavaPairRDD<String, String> newsPairRDD = newsRDD.mapToPair( (CouchbaseQueryRow row) -> {
+			JsonObject newsObject = row.value();
+			return new Tuple2<String, String>(newsObject.getString("id"), newsObject.getString("content"));
 		});
-
-		//将新闻存储到Couchbase中
-		List<String[]> newsData = newsDataRDD.collect();
-		for(String[] line : newsData) {
-			if(line.length != 6) {
-				continue;
-			}
-			idList.add(line[0]);
-			contentList.add(line[5]);
-			
-			//构建一篇新闻的Json数据
-			JsonObject news = JsonObject.create()
-	                .put("type", "news")
-	                .put("id", line[0])
-	                .put("title", line[1])
-	                .put("category", line[2])
-	                .put("url", line[3])
-	                .put("source", line[4])
-	                .put("content", line[5])
-	                ;
-			jsonDocumentList.add( JsonDocument.create("news_"+line[0], news) );
-		}
-		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
 		
+		JavaRDD<String> idRDD = newsPairRDD.keys();
+		JavaRDD<String> contentRDD = newsPairRDD.values();
 		
 		//分词
-		JavaRDD<String> contentRDD = sc.parallelize(contentList);
-		JavaRDD<List<String>> segmentedRDD = contentRDD.map( (String line)-> {
-			return WordSegmentation.FNLPSegment(line);
+		JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
+			return WordSegmentation.FNLPSegment(content);
 		});
 	
-		
 		//tf-idf特征向量
-		JavaRDD<Vector> featureRDD = FeatureExtraction.getTfidfRDD(2000, segmentedRDD);
+		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+		
+		//构建featureList
+		List<NewsFeature> featureList = new ArrayList<NewsFeature>();
+		List<String> idList = idRDD.collect();
+		List<Vector> vectorList = vectorRDD.collect();
+		for(int i=0 ; i<idList.size() ; ++i) {
+			featureList.add( new NewsFeature(idList.get(i), vectorList.get(i)) );
+		}
+		
 		
 		
 		//singlePass聚类
-		List<Cluster> resultClusterList = SinglePassClustering.singlePass(featureRDD, idList, singlePassThreshold);
+		List<Cluster> resultClusterList = SinglePassClustering.singlePass(featureList, singlePassThreshold);
+		
+//		System.out.println("\n*********************************");
+//		System.out.println("Yes");
+//		System.out.println("*********************************\n");
 		
 		//输出singlePass聚类结果
 		System.out.println("\n*********************************");
 		for(int i=0 ; i<resultClusterList.size() ; ++i) {
 			Cluster cluster = resultClusterList.get(i);
 			System.out.print("[" + (i+1) + ": ");
-			for(String id : cluster.getIdList()) {
+			for(NewsFeature feature : cluster.getFeatureList()) {
+				String id = feature.getId();
 				System.out.print(id + ", ");
 			}
 			System.out.println("]");
@@ -187,7 +213,6 @@ public class App
 //			System.out.println(v);
 //		}
 //		System.out.println("*********************************\n");
-
 	}
 
 }

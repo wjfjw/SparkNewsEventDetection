@@ -11,21 +11,17 @@ import org.apache.spark.mllib.linalg.Vectors;
 
 public class Cluster 
 {
-	private List<Vector> vectorList;
-	private List<String> idList;
+	private List<NewsFeature> featureList;
 	private Vector centerVector;
 	private long time;
 	
 	public Cluster(Vector v, String id, long time) {
-		vectorList = new ArrayList<Vector>();
-		vectorList.add(v);
-		idList = new ArrayList<String>();
-		idList.add(id);
+		featureList = new ArrayList<NewsFeature>();
+		featureList.add( new NewsFeature(id, v) );
 		this.centerVector = v;
 		this.time = time;
 	}
 
-	
 	public long getTime() {
 		return time;
 	}
@@ -34,16 +30,12 @@ public class Cluster
 		return centerVector;
 	}
 	
-	public void addVector(Vector v) {
-		vectorList.add(v);
+	public void addFeature(NewsFeature feature) {
+		featureList.add(feature);
 	}
 	
-	public void addId(String id) {
-		idList.add(id);
-	}
-	
-	public List<String> getIdList(){
-		return idList;
+	public List<NewsFeature> getFeatureList(){
+		return featureList;
 	}
 	
 	public void resetCenterVector() {
@@ -53,7 +45,8 @@ public class Cluster
 			sumArray[i] = 0;
 		}
 		
-		for(Vector v : vectorList) {
+		for(NewsFeature feature : featureList) {
+			Vector v = feature.getVector();
 			double[] a = v.toArray();
 			for(int i=0 ; i<size ; ++i) {
 				sumArray[i] += a[i];
@@ -61,7 +54,7 @@ public class Cluster
 		}
 		
 		for(int i=0 ; i<size ; ++i) {
-			sumArray[i] /= vectorList.size();
+			sumArray[i] /= featureList.size();
 		}
 		
 		centerVector = new DenseVector(sumArray).toSparse();
