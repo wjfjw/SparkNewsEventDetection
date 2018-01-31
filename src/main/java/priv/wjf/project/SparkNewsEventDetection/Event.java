@@ -9,21 +9,34 @@ import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
 
-public class Cluster 
+public class Event 
 {
 	private List<NewsFeature> featureList;
 	private Vector centerVector;
-	private long time;
+	private long startTime;
+	private long endTime;
 	
-	public Cluster(Vector v, String id, long time) {
+	public Event(Vector v, String id, long startTime) {
 		featureList = new ArrayList<NewsFeature>();
 		featureList.add( new NewsFeature(id, v) );
 		this.centerVector = v;
-		this.time = time;
+		this.startTime = startTime;
+		this.endTime = Long.MAX_VALUE;
 	}
 
-	public long getTime() {
-		return time;
+	public long getStartTime() {
+		return startTime;
+	}
+	
+	public long getEndTime() {
+		return endTime;
+	}
+	
+	public void setEndTime() {
+		int size = featureList.size();
+		String endId = featureList.get(size-1).getId();
+		long endTime = Long.parseLong(endId.substring(0, 12));
+		this.endTime = endTime;
 	}
 	
 	public Vector getCenterVector() {

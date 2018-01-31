@@ -19,16 +19,17 @@ import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
-import org.apache.spark.sql.Row;
 
 import com.couchbase.client.java.Bucket;
+import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.CouchbaseCluster;
-import com.couchbase.client.java.document.JsonDocument;
+import com.couchbase.client.java.document.json.JsonArray;
 import com.couchbase.client.java.document.json.JsonObject;
 import com.couchbase.client.java.query.N1qlQuery;
+import com.couchbase.client.java.query.N1qlQueryResult;
+import com.couchbase.client.java.query.N1qlQueryRow;
 import com.couchbase.client.java.query.Statement;
 import com.couchbase.client.java.query.dsl.Sort;
-import com.couchbase.client.java.query.dsl.path.AsPath;
 import com.couchbase.spark.japi.CouchbaseSparkContext;
 import com.couchbase.spark.rdd.CouchbaseQueryRow;
 
@@ -37,7 +38,6 @@ import static com.couchbase.client.java.query.dsl.Expression.i;
 import static com.couchbase.client.java.query.dsl.Expression.s;
 import static com.couchbase.client.java.query.dsl.Expression.x;
 
-import au.com.bytecode.opencsv.CSVReader;
 import scala.Tuple2;
 
 public class App 
@@ -45,8 +45,13 @@ public class App
 	private static SparkConf conf;
 	private static JavaSparkContext sc;
 	private static CouchbaseSparkContext csc;
-	private static double singlePassThreshold = 0.2;
+	
+	private static Cluster cluster;
+	private static Bucket bucket;
 	private static final String bucketName = "newsEventDetection";
+	
+	private static double singlePassThreshold = 0.2;
+	private static long singlePassTimeWindow_hour = 24;		//单位：小时
 	
 	static
 	{
@@ -62,8 +67,8 @@ public class App
 	public static void main(String[] args) 
 	{
 		// Initialize the Connection
-		com.couchbase.client.java.Cluster cluster = CouchbaseCluster.create("localhost");
-		Bucket bucket = cluster.openBucket(bucketName);
+		cluster = CouchbaseCluster.create("localhost");
+		bucket = cluster.openBucket(bucketName);
 		
 		//进行新闻事件检测
 		detecteEvent();
@@ -71,6 +76,74 @@ public class App
         //断开数据库连接
         bucket.close();
         cluster.disconnect();
+	}
+	
+	private static void singlePass(JavaRDD<String> idRDD, JavaRDD<Vector> vectorRDD)
+	{
+		//构建featureList
+		List<NewsFeature> featureList = new ArrayList<NewsFeature>();
+		List<String> idList = idRDD.collect();
+		List<Vector> vectorList = vectorRDD.collect();
+		for(int i=0 ; i<idList.size() ; ++i) {
+			featureList.add( new NewsFeature(idList.get(i), vectorList.get(i)) );
+		}
+		
+		//singlePass聚类
+		List<Event> resultEventList = SinglePassClustering.singlePass(featureList, singlePassThreshold, singlePassTimeWindow_hour);
+
+		//查询最大的id
+		int max_event_id = 0;
+		Statement statement1 = select("MAX(n.event_id)")
+				.from(i(bucketName).as("n"));
+		N1qlQuery query1 = N1qlQuery.simple(statement1);
+		N1qlQueryResult result1 = bucket.query(query1);
+		List<N1qlQueryRow> resultRowList1 = result1.allRows();
+		if(!resultRowList1.isEmpty()) {
+			max_event_id = resultRowList1.get(0).value().getInt("event_id");
+		}
+		
+		//根据算法参数查询algorithm_id
+		Statement statement2 = select("n.algorithm_id")
+				.from(i(bucketName).as("n"))
+				.where( x("type").eq(s("algorithm"))
+						.and( x("algorithm_name").eq(s("singlePass")) )
+						.and( x("parameters.similarity_threshold").eq( s(Double.toString(singlePassThreshold)) ) )
+						.and( x("parameters.time_window").eq( s(Long.toString(singlePassTimeWindow_hour)) ) ) );
+		N1qlQuery query2 = N1qlQuery.simple(statement2);
+		N1qlQueryResult result2 = bucket.query(query2);
+		List<N1qlQueryRow> resultRowList2 = result2.allRows();
+		if(resultRowList2.isEmpty()) {
+			System.out.println("对应的算法不存在！");
+			return;
+		}
+		int algorithm_id = resultRowList2.get(0).value().getInt("algorithm_id");
+		
+		//将event插入数据库中
+		int event_id = max_event_id + 1;
+		List<JsonObject> eventObjectList = new ArrayList<JsonObject>();
+		for(Event event : resultEventList) {
+			JsonObject eventObject = JsonObject.create()
+					.put("event_id", event_id)
+					.put("start_time", event.getStartTime())
+					.put("end_time", event.getEndTime())
+					.put("news_list", JsonArray.from(event.getFeatureList()))
+					.put("algorithm_id", algorithm_id);
+			++event_id;
+		}
+		
+		
+//		//输出singlePass聚类结果
+//		System.out.println("\n*********************************");
+//		for(int i=0 ; i<resultClusterList.size() ; ++i) {
+//			Cluster cluster = resultClusterList.get(i);
+//			System.out.print("[" + (i+1) + ": ");
+//			for(NewsFeature feature : cluster.getFeatureList()) {
+//				String id = feature.getId();
+//				System.out.print(id + ", ");
+//			}
+//			System.out.println("]");
+//		}
+//		System.out.println("*********************************\n");
 	}
 	
 	
@@ -86,8 +159,6 @@ public class App
 		N1qlQuery query = N1qlQuery.simple(statement);
 		JavaRDD<CouchbaseQueryRow> newsRDD = csc.couchbaseQuery(query);
 		
-		
-		
 		//新闻id和content构成的newsPairRDD
 		JavaPairRDD<String, String> newsPairRDD = newsRDD.mapToPair( (CouchbaseQueryRow row) -> {
 			JsonObject newsObject = row.value();
@@ -97,44 +168,26 @@ public class App
 		JavaRDD<String> idRDD = newsPairRDD.keys();
 		JavaRDD<String> contentRDD = newsPairRDD.values();
 		
+		//不知道为什么要这样做才不报错
+		List<String> contentList = contentRDD.collect();
+		JavaRDD<String> contentRDD2 = sc.parallelize(contentList);
+		
 		//分词
-		JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
+		JavaRDD<List<String>> contentWordsRDD = contentRDD2.map( (String content)-> {
 			return WordSegmentation.FNLPSegment(content);
 		});
 	
 		//tf-idf特征向量
 		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+
+		singlePass(idRDD, vectorRDD);
 		
-		//构建featureList
-		List<NewsFeature> featureList = new ArrayList<NewsFeature>();
-		List<String> idList = idRDD.collect();
-		List<Vector> vectorList = vectorRDD.collect();
-		for(int i=0 ; i<idList.size() ; ++i) {
-			featureList.add( new NewsFeature(idList.get(i), vectorList.get(i)) );
-		}
+
 		
-		
-		
-		//singlePass聚类
-		List<Cluster> resultClusterList = SinglePassClustering.singlePass(featureList, singlePassThreshold);
 		
 //		System.out.println("\n*********************************");
 //		System.out.println("Yes");
 //		System.out.println("*********************************\n");
-		
-		//输出singlePass聚类结果
-		System.out.println("\n*********************************");
-		for(int i=0 ; i<resultClusterList.size() ; ++i) {
-			Cluster cluster = resultClusterList.get(i);
-			System.out.print("[" + (i+1) + ": ");
-			for(NewsFeature feature : cluster.getFeatureList()) {
-				String id = feature.getId();
-				System.out.print(id + ", ");
-			}
-			System.out.println("]");
-		}
-		System.out.println("*********************************\n");
-		
 		
 		
 //		//特征降维

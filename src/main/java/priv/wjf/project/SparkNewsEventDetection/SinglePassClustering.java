@@ -10,7 +10,7 @@ import org.apache.spark.mllib.linalg.Vector;
 
 /**
  * 问题：1.新闻编号、时间等元素
- * 		2.数据库中cluster的存储
+ * 		2.数据库中event的存储
  * 		3.数据库中新闻的存储
  * @author wjf
  *
@@ -18,50 +18,57 @@ import org.apache.spark.mllib.linalg.Vector;
 
 public class SinglePassClustering 
 {
-	public static List<Cluster> singlePass(List<NewsFeature> featureList , double simThreshold) 
+	public static List<Event> singlePass(List<NewsFeature> featureList , double simThreshold, long timeWindow_hour) 
 	{
-		List<Cluster> resultClusterList = new ArrayList<Cluster>();
-		Queue<Cluster> queue = new LinkedList<Cluster>();
-		Cluster maxSimCluster = null;
+		long timeWindow_millisecond = timeWindow_hour * 60 * 60 * 1000;
+		List<Event> resultEventList = new ArrayList<Event>();
+		Queue<Event> queue = new LinkedList<Event>();
+		Event maxSimEvent = null;
 		
 		for(NewsFeature feature : featureList) {
 			double maxSim = Double.NEGATIVE_INFINITY;
 			Vector vector = feature.getVector();
 			String id = feature.getId();
-			long time = Long.parseLong(id.substring(0, 12));
+			long startTime = Long.parseLong(id.substring(0, 12));
 			
-			for(Cluster cluster : queue) {
-				double sim = Similarity.getCosineSimilarity(vector, cluster.getCenterVector());
+			for(Event event : queue) {
+				double sim = Similarity.getCosineSimilarity(vector, event.getCenterVector());
 				if(sim > maxSim) {
 					maxSim = sim;
-					maxSimCluster = cluster;
+					maxSimEvent = event;
 				}
 			}
 			
-			//如果最大相似度大于simThreshold，则将该新闻加入对应的cluster
+			//如果最大相似度大于simThreshold，则将该新闻加入对应的event
 			if(maxSim > simThreshold) {
-				maxSimCluster.addFeature(feature);
-				maxSimCluster.resetCenterVector();
+				maxSimEvent.addFeature(feature);
+				maxSimEvent.resetCenterVector();
 			}
-			//否则，根据该新闻创建一个新的cluster，并加入到queue中
+			//否则，根据该新闻创建一个新的event，并加入到queue中
 			else {
-				Cluster c = new Cluster(vector, id, time);
+				Event event = new Event(vector, id, startTime);
 				
-				//将queue中超过时间窗口的cluster移出，并加到resultClusterList中
+				//将queue中超过时间窗口的event移出，并加到resultEventList中
 				//一天的毫秒数为86400005
 				while(!queue.isEmpty()
-						&& !withinTimeWindow(queue.peek().getTime(), c.getTime(), 86400005)) {
-						resultClusterList.add( queue.poll() );
+						&& !withinTimeWindow(queue.peek().getStartTime(), event.getStartTime(), timeWindow_millisecond)) {
+						resultEventList.add( queue.poll() );
 				}
-				queue.add(c);
+				queue.add(event);
 			}
 		}
 		
-		//将queue中剩余的Cluster加到结果list中
+		//将queue中剩余的Event加到结果list中
 		while( !queue.isEmpty() ) {
-			resultClusterList.add( queue.poll() );
+			resultEventList.add( queue.poll() );
 		}
-		return resultClusterList;
+		
+		//设置每一个Event的结束时间
+		for(Event event : resultEventList) {
+			event.setEndTime();
+		}
+		
+		return resultEventList;
 	}
 	
 	/**
