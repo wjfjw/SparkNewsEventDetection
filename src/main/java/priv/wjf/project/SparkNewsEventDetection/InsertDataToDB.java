@@ -28,32 +28,20 @@ import au.com.bytecode.opencsv.CSVReader;
 
 public class InsertDataToDB 
 {
-	private static SparkConf conf;
-	private static JavaSparkContext sc;
-	private static String inputPath_news = "/home/wjf/Data/de-duplicate/201711/all_summary.csv";
-	
-	private static Cluster cluster;
-	private static Bucket bucket;
-	private static final String bucketName = "newsEventDetection";
-	
-	static
+	public static void main(String[] args) 
 	{
-		conf = new SparkConf()
+		final String bucketName = "newsEventDetection";
+		SparkConf conf = new SparkConf()
 				.setAppName("SparkNewsEventDetection")
 				.setMaster("local")
 				.set("com.couchbase.bucket." + bucketName, "");
-		
-		sc = new JavaSparkContext(conf);
-	}
+		JavaSparkContext sc = new JavaSparkContext(conf);;
 
-	public static void main(String[] args) 
-	{
 		// Initialize the Connection
-		cluster = CouchbaseCluster.create("localhost");
-		bucket = cluster.openBucket(bucketName);
+		Cluster cluster = CouchbaseCluster.create("localhost");
+		Bucket bucket = cluster.openBucket(bucketName);
 		
 		//将新闻数据存储到数据库中
-		insertNews();
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -68,9 +56,10 @@ public class InsertDataToDB
 	/**
 	 * 将新闻数据存储在数据库中
 	 */
-	public static void insertNews()
+	public static void insertNews(JavaSparkContext sc, Bucket bucket)
 	{
 		//新闻格式：id，title,category,url,source,content
+		String inputPath_news = "/home/wjf/Data/de-duplicate/201711/all_summary.csv";
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
 		
 		//读取CSV文件中的数据
@@ -83,7 +72,7 @@ public class InsertDataToDB
 		List<String[]> newsData = newsDataRDD.collect();
 		
 		//获取当前可用的news_id
-		int news_id = getMaxId("news_id") + 1;
+		int news_id = getMaxId(bucket, "news_id") + 1;
 		
 		//将新闻存储到Couchbase中
 		for(String[] line : newsData) {
@@ -136,10 +125,11 @@ public class InsertDataToDB
 	 * @param resultEventList
 	 * @param algorithm_id
 	 */
-	public static void insertEvent(List<Event> resultEventList, int algorithm_id, String event_category) 
+	public static void insertEvent(
+			JavaSparkContext sc, Bucket bucket, List<Event> resultEventList, int algorithm_id, String event_category) 
 	{
 		//获取当前可用的event_id
-		int event_id = getMaxId("event_id") + 1;
+		int event_id = getMaxId(bucket, "event_id") + 1;
 		
 		//将event存储到数据库中
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
@@ -165,45 +155,51 @@ public class InsertDataToDB
 		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
 	}
 	
+	
 	/**
 	 * 将算法存储到数据库中
 	 */
-	private static void insertAlgorithm()
+	private static void insertAlgorithm(JavaSparkContext sc, Bucket bucket)
 	{
-		String[] algorithm_name = {"singlePass", "kmeans"};
 		double[] singlePass_similarity_threshold = {0.1, 0.2, 0.3, 0.4, 0.5};
 		int[] singlePass_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
 		
 		//获取当前可用的algorithm_id
-		int algorithm_id = getMaxId("algorithm_id") + 1;
+		int algorithm_id = getMaxId(bucket, "algorithm_id") + 1;
 		
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
-		for(String algorithmName : algorithm_name) {
-			JsonObject parametersObject = null;
-			if(algorithmName.equals("singlePass")) {
-				for(double similarity_threshold : singlePass_similarity_threshold) {
-					for(int time_window : singlePass_time_window) {
-						//构建parameters的JsonObject
-						parametersObject = JsonObject.create()
-								.put("similarity_threshold", similarity_threshold)
-								.put("time_window", time_window);
-					}
-				}
-			}else {
-				for(int cluster_number : kmeans_cluster_number) {
-					//构建parameters的JsonObject
-					parametersObject = JsonObject.create()
-							.put("cluster_number", cluster_number);
-				}
+		
+		for(double similarity_threshold : singlePass_similarity_threshold) {
+			for(int time_window : singlePass_time_window) {
+				//构建parameters的JsonObject
+				JsonObject parametersObject = JsonObject.create()
+						.put("similarity_threshold", similarity_threshold)
+						.put("time_window", time_window);
+				
+				//构建algorithm的JsonObject
+				JsonObject algorithmObject = JsonObject.create()
+		                .put("type", "algorithm")
+		                .put("algorithm_id", algorithm_id)
+		                .put("algorithm_name", "single_pass")
+		                .put("algorithm_parameters", parametersObject);
+				
+				jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
+				++algorithm_id;
 			}
+		}
+		
+		for(int cluster_number : kmeans_cluster_number) {
+			//构建parameters的JsonObject
+			JsonObject parametersObject = JsonObject.create()
+					.put("cluster_number", cluster_number);
 			
 			//构建algorithm的JsonObject
 			JsonObject algorithmObject = JsonObject.create()
 	                .put("type", "algorithm")
 	                .put("algorithm_id", algorithm_id)
-	                .put("algorithm_name", algorithmName)
+	                .put("algorithm_name", "kmeans")
 	                .put("algorithm_parameters", parametersObject);
 			
 			jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
@@ -218,16 +214,19 @@ public class InsertDataToDB
 	 * @param documentId
 	 * @return
 	 */
-	private static int getMaxId(String documentId)
+	private static int getMaxId(Bucket bucket, String documentId)
 	{
 		int max_id = 0;
 		Statement statement = select("MAX(n." + documentId + ")")
-				.from(i(bucketName).as("n"));
+				.from(i(bucket.name()).as("n"));
 		N1qlQuery query = N1qlQuery.simple(statement);
 		N1qlQueryResult result = bucket.query(query);
 		List<N1qlQueryRow> resultRowList = result.allRows();
 		if(!resultRowList.isEmpty()) {
-			max_id = resultRowList.get(0).value().getInt(documentId);
+			JsonObject firstObject = resultRowList.get(0).value();
+			if(firstObject.containsKey(documentId)) {
+				max_id = firstObject.getInt(documentId);
+			}
 		}
 		return max_id;
 	}

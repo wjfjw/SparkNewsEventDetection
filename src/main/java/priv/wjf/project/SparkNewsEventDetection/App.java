@@ -18,7 +18,6 @@ import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
-import org.apache.spark.mllib.linalg.Vectors;
 
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
@@ -39,8 +38,6 @@ import static com.couchbase.client.java.query.dsl.Expression.i;
 import static com.couchbase.client.java.query.dsl.Expression.s;
 import static com.couchbase.client.java.query.dsl.Expression.x;
 import static com.couchbase.spark.japi.CouchbaseDocumentRDD.couchbaseDocumentRDD;
-
-import scala.Tuple2;
 
 public class App 
 {
@@ -91,10 +88,10 @@ public class App
 	private static void detecteEvent() 
 	{
 		//从Couchbase中读取由新闻id和content构成的newsRDD
-		Statement statement = select("n.news_id", "n.news_content")
+		Statement statement = select("n.news_id", "n.news_time", "n.news_content")
 				.from(i(bucketName).as("n"))
-				.where( x("news_category").eq(s(news_category)).and( x("news_time").between( s("201711010000").and(s("201711012359")) ) ) )
-				.orderBy(Sort.asc("n.news_id"));
+				.where( x("news_category").eq(s(news_category)).and( x("news_time").between( s("201711010000").and(s("201711302359")) ) ) )
+				.orderBy(Sort.asc("n.news_time"));
 		N1qlQuery query = N1qlQuery.simple(statement);
 		JavaRDD<CouchbaseQueryRow> newsRDD = csc.couchbaseQuery(query);
 		List<CouchbaseQueryRow> resultRowList = newsRDD.collect();
@@ -156,20 +153,24 @@ public class App
 		//根据算法参数查询algorithm_id
 		Statement statement = select("n.algorithm_id")
 				.from(i(bucketName).as("n"))
-				.where( x("algorithm_name").eq(s("singlePass"))
+				.where( x("algorithm_name").eq(s("single_pass"))
 						.and( x("algorithm_parameters.similarity_threshold").eq( s(Double.toString(singlePassThreshold)) ) )
 						.and( x("algorithm_parameters.time_window").eq( s(Integer.toString(singlePassTimeWindow_hour)) ) ) );
 		N1qlQuery query = N1qlQuery.simple(statement);
 		N1qlQueryResult result = bucket.query(query);
 		List<N1qlQueryRow> resultRowList = result.allRows();
-		if(resultRowList.isEmpty()) {
+		if(resultRowList.isEmpty() || !resultRowList.get(0).value().containsKey("algorithm_id")) {
+			System.out.println("\n*********************************");
 			System.out.println("对应的算法不存在！");
+			System.out.println("*********************************\n");
 			return;
 		}
 		int algorithm_id = resultRowList.get(0).value().getInt("algorithm_id");
 		
-		InsertDataToDB.insertEvent(resultEventList, algorithm_id, news_category);
+		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
 	}
+	
+	
 
 }
 
