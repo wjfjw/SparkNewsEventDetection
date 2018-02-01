@@ -18,18 +18,19 @@ import org.apache.spark.mllib.linalg.Vector;
 
 public class SinglePassClustering 
 {
-	public static List<Event> singlePass(List<NewsFeature> featureList , double simThreshold, long timeWindow_hour) 
+	public static List<Event> singlePass(List<NewsFeature> featureList , double simThreshold, int timeWindow_hour) 
 	{
-		long timeWindow_millisecond = timeWindow_hour * 60 * 60 * 1000;
+		long timeWindow_millisecond = (long)timeWindow_hour * 60 * 60 * 1000;
 		List<Event> resultEventList = new ArrayList<Event>();
 		Queue<Event> queue = new LinkedList<Event>();
 		Event maxSimEvent = null;
 		
 		for(NewsFeature feature : featureList) {
 			double maxSim = Double.NEGATIVE_INFINITY;
+			
+			int id = feature.getId();
+			long startTime = feature.getTime();
 			Vector vector = feature.getVector();
-			String id = feature.getId();
-			long startTime = Long.parseLong(id.substring(0, 12));
 			
 			for(Event event : queue) {
 				double sim = Similarity.getCosineSimilarity(vector, event.getCenterVector());
@@ -46,7 +47,7 @@ public class SinglePassClustering
 			}
 			//否则，根据该新闻创建一个新的event，并加入到queue中
 			else {
-				Event event = new Event(vector, id, startTime);
+				Event event = new Event(feature);
 				
 				//将queue中超过时间窗口的event移出，并加到resultEventList中
 				//一天的毫秒数为86400005

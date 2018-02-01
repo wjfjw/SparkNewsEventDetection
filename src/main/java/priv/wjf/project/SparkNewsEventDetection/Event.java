@@ -1,13 +1,10 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
-import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
-import org.apache.spark.mllib.linalg.Vectors;
 
 public class Event 
 {
@@ -16,11 +13,11 @@ public class Event
 	private long startTime;
 	private long endTime;
 	
-	public Event(Vector v, String id, long startTime) {
+	public Event(NewsFeature feature) {
 		featureList = new ArrayList<NewsFeature>();
-		featureList.add( new NewsFeature(id, v) );
-		this.centerVector = v;
-		this.startTime = startTime;
+		featureList.add(feature);
+		this.centerVector = feature.getVector();
+		this.startTime = feature.getTime();
 		this.endTime = Long.MAX_VALUE;
 	}
 
@@ -34,8 +31,7 @@ public class Event
 	
 	public void setEndTime() {
 		int size = featureList.size();
-		String endId = featureList.get(size-1).getId();
-		long endTime = Long.parseLong(endId.substring(0, 12));
+		long endTime = featureList.get(size-1).getTime();
 		this.endTime = endTime;
 	}
 	
