@@ -18,6 +18,7 @@ import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
+import org.apache.spark.storage.StorageLevel;
 
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
@@ -29,6 +30,7 @@ import com.couchbase.client.java.query.N1qlQuery;
 import com.couchbase.client.java.query.N1qlQueryResult;
 import com.couchbase.client.java.query.N1qlQueryRow;
 import com.couchbase.client.java.query.Statement;
+import com.couchbase.client.java.query.dsl.Expression;
 import com.couchbase.client.java.query.dsl.Sort;
 import com.couchbase.spark.japi.CouchbaseSparkContext;
 import com.couchbase.spark.rdd.CouchbaseQueryRow;
@@ -49,11 +51,15 @@ public class App
 	private static Bucket bucket;
 	private static final String bucketName = "newsEventDetection";
 	
+	//新闻类别
+	private static String news_category =  "gn";
+	
 	//算法参数
 	private static double singlePassThreshold = 0.2;
 	private static int singlePassTimeWindow_hour = 24;		//单位：小时
 	
-	private static String news_category =  "gn";
+	private static int kmeans_cluster_number = 200;
+	
 	
 	static
 	{
@@ -73,7 +79,7 @@ public class App
 		bucket = cluster.openBucket(bucketName);
 		
 		//进行新闻事件检测
-		detecteEvent();
+		singlePass_detecte_event();
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -83,24 +89,37 @@ public class App
         cluster.disconnect();
 	}
 	
-
 	
-	private static void detecteEvent() 
+	/**
+	 * 使用singlePass算法进行事件检测
+	 * @param idRDD
+	 * @param vectorRDD
+	 */
+	private static void singlePass_detecte_event()
 	{
-		//从Couchbase中读取由新闻id和content构成的newsRDD
+		//进行事件检测的起始时间和结束时间
+		long startTime = 201711010000L;
+		long endTime = 201711302359L;
+		
+		//查询指定的新闻
 		Statement statement = select("n.news_id", "n.news_time", "n.news_content")
 				.from(i(bucketName).as("n"))
-				.where( x("news_category").eq(s(news_category)).and( x("news_time").between( s("201711010000").and(s("201711302359")) ) ) )
+				.where( x("n.news_category").eq(s(news_category)).and( x("n.news_time").between( x(startTime).and(x(endTime)) ) ) )
 				.orderBy(Sort.asc("n.news_time"));
 		N1qlQuery query = N1qlQuery.simple(statement);
-		JavaRDD<CouchbaseQueryRow> newsRDD = csc.couchbaseQuery(query);
-		List<CouchbaseQueryRow> resultRowList = newsRDD.collect();
+		
+//		//不知道为什么会出错，rx.exceptions.MissingBackpressureException
+//		JavaRDD<CouchbaseQueryRow> newsRDD = csc.couchbaseQuery(query);
+//		List<CouchbaseQueryRow> resultRowList = newsRDD.collect();
+		
+		N1qlQueryResult result = bucket.query(query);
+		List<N1qlQueryRow> resultRowList = result.allRows();
 		
 		//获取查询结果中每一篇新闻的id, time, content
 		List<Integer> idList = new ArrayList<Integer>();
 		List<Long> timeList = new ArrayList<Long>();
 		List<String> contentList = new ArrayList<String>();
-		for(CouchbaseQueryRow row : resultRowList) {
+		for(N1qlQueryRow row : resultRowList) {
 			JsonObject newsObject = row.value();
 			idList.add( newsObject.getInt("news_id") );
 			timeList.add( newsObject.getLong("news_time") );
@@ -109,19 +128,6 @@ public class App
 		
 		JavaRDD<String> contentRDD = sc.parallelize(contentList);
 		
-//		//新闻id和content构成的newsPairRDD
-//		JavaPairRDD<String, String> newsPairRDD = newsRDD.mapToPair( (CouchbaseQueryRow row) -> {
-//			JsonObject newsObject = row.value();
-//			return new Tuple2<String, String>(newsObject.getString("id"), newsObject.getString("content"));
-//		});
-//		
-//		JavaRDD<String> idRDD = newsPairRDD.keys();
-//		JavaRDD<String> contentRDD = newsPairRDD.values();
-//		
-//		//不知道为什么要这样做才不报错
-//		List<String> contentList = contentRDD.collect();
-//		JavaRDD<String> contentRDD2 = sc.parallelize(contentList);
-		
 		//分词
 		JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
 			return WordSegmentation.FNLPSegment(content);
@@ -129,18 +135,12 @@ public class App
 	
 		//tf-idf特征向量
 		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+		
+//		//特征降维
+//		vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
+		
 		List<Vector> vectorList = vectorRDD.collect();
 		
-		singlePass_detecte(idList, timeList, vectorList);
-	}
-	
-	/**
-	 * 使用singlePass算法进行事件检测
-	 * @param idRDD
-	 * @param vectorRDD
-	 */
-	private static void singlePass_detecte(List<Integer> idList, List<Long> timeList, List<Vector> vectorList)
-	{
 		//构建featureList
 		List<NewsFeature> featureList = new ArrayList<NewsFeature>();
 		for(int i=0 ; i<idList.size() ; ++i) {
@@ -150,27 +150,65 @@ public class App
 		//singlePass聚类
 		List<Event> resultEventList = SinglePassClustering.singlePass(featureList, singlePassThreshold, singlePassTimeWindow_hour);
 		
-		//根据算法参数查询algorithm_id
-		Statement statement = select("n.algorithm_id")
-				.from(i(bucketName).as("n"))
-				.where( x("algorithm_name").eq(s("single_pass"))
-						.and( x("algorithm_parameters.similarity_threshold").eq( s(Double.toString(singlePassThreshold)) ) )
-						.and( x("algorithm_parameters.time_window").eq( s(Integer.toString(singlePassTimeWindow_hour)) ) ) );
-		N1qlQuery query = N1qlQuery.simple(statement);
-		N1qlQueryResult result = bucket.query(query);
-		List<N1qlQueryRow> resultRowList = result.allRows();
-		if(resultRowList.isEmpty() || !resultRowList.get(0).value().containsKey("algorithm_id")) {
-			System.out.println("\n*********************************");
-			System.out.println("对应的算法不存在！");
-			System.out.println("*********************************\n");
+		int algorithm_id = getAlgorithm_id("single_pass");
+		if(algorithm_id == -1) {
 			return;
 		}
-		int algorithm_id = resultRowList.get(0).value().getInt("algorithm_id");
-		
+
 		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
 	}
 	
 	
+	private static void kmeans_detecte_event() 
+	{
+		int days = 30;
+		
+		
+		//查询指定的新闻
+		Statement statement = select("news_id", "news_time", "news_content")
+				.from(i(bucketName))
+				.where( x("news_category").eq(s(news_category)).and( x("news_time").between( x(startTime).and(x(endTime)) ) ) ) );
+		N1qlQuery query = N1qlQuery.simple(statement);
+		
+		
+	}
+	
+	
+	/**
+	 * 获取指定算法及参数的id
+	 * @param algorithm_name
+	 * @return
+	 */
+	private static int getAlgorithm_id(String algorithm_name)
+	{
+		Expression expression = x("algorithm_name").eq(s(algorithm_name));
+		if(algorithm_name.equals("single_pass")) {
+			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(singlePassThreshold) ) )
+					.and( x("algorithm_parameters.time_window").eq( x(singlePassTimeWindow_hour) ) );
+		}else if(algorithm_name.equals("kmeans")) {
+			expression = expression.and( x("algorithm_parameters.cluster_number").eq( x(kmeans_cluster_number) ) );
+		}
+		
+		//根据算法参数查询algorithm_id
+		Statement statement = select("algorithm_id")
+				.from(i(bucketName))
+				.where(expression);
+
+		N1qlQuery query = N1qlQuery.simple(statement);
+		N1qlQueryResult result = bucket.query(query);
+		List<N1qlQueryRow> resultRowList = result.allRows();
+		
+		int algorithm_id = -1;
+		if(!resultRowList.isEmpty() && resultRowList.get(0).value().containsKey("algorithm_id")) {
+			JsonObject object = resultRowList.get(0).value();
+			algorithm_id = object.getInt("algorithm_id");
+		}else {
+			System.out.println("\n*********************************");
+			System.out.println("对应的算法不存在！");
+			System.out.println("*********************************\n");
+		}
+		return algorithm_id;
+	}
 
 }
 
@@ -268,4 +306,18 @@ public class App
 //	System.out.println(v);
 //}
 //System.out.println("*********************************\n");
+
+
+////新闻id和content构成的newsPairRDD
+//JavaPairRDD<String, String> newsPairRDD = newsRDD.mapToPair( (CouchbaseQueryRow row) -> {
+//	JsonObject newsObject = row.value();
+//	return new Tuple2<String, String>(newsObject.getString("id"), newsObject.getString("content"));
+//});
+//
+//JavaRDD<String> idRDD = newsPairRDD.keys();
+//JavaRDD<String> contentRDD = newsPairRDD.values();
+//
+////不知道为什么要这样做才不报错
+//List<String> contentList = contentRDD.collect();
+//JavaRDD<String> contentRDD2 = sc.parallelize(contentList);
 

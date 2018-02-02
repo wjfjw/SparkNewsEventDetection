@@ -142,6 +142,7 @@ public class InsertDataToDB
 			}
 			//构建事件的JsonObject
 			JsonObject eventObject = JsonObject.create()
+					.put("type", "event")
 					.put("event_id", event_id)
 					.put("event_start_time", event.getStartTime())
 					.put("event_end_time", event.getEndTime())
