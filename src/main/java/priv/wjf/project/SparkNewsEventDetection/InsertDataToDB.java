@@ -2,6 +2,7 @@ package priv.wjf.project.SparkNewsEventDetection;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +43,7 @@ public class InsertDataToDB
 		Bucket bucket = cluster.openBucket(bucketName);
 		
 		//将新闻数据存储到数据库中
+		insertNews(sc, bucket);
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -81,7 +83,7 @@ public class InsertDataToDB
 				continue;
 			}
 			
-			long time = Long.parseLong(line[0].substring(0, 12));
+			long time = TimeConversion.getMilliseconds(line[0].substring(0, 12));
 			String content = line[5];
 			
 			//获取命名实体
@@ -166,6 +168,7 @@ public class InsertDataToDB
 		int[] singlePass_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
+		int[] kmeans_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
 		//获取当前可用的algorithm_id
 		int algorithm_id = getMaxId(bucket, "algorithm_id") + 1;
@@ -192,19 +195,22 @@ public class InsertDataToDB
 		}
 		
 		for(int cluster_number : kmeans_cluster_number) {
-			//构建parameters的JsonObject
-			JsonObject parametersObject = JsonObject.create()
-					.put("cluster_number", cluster_number);
-			
-			//构建algorithm的JsonObject
-			JsonObject algorithmObject = JsonObject.create()
-	                .put("type", "algorithm")
-	                .put("algorithm_id", algorithm_id)
-	                .put("algorithm_name", "kmeans")
-	                .put("algorithm_parameters", parametersObject);
-			
-			jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
-			++algorithm_id;
+			for(int time_window : kmeans_time_window) {
+				//构建parameters的JsonObject
+				JsonObject parametersObject = JsonObject.create()
+						.put("cluster_number", cluster_number)
+						.put("time_window", time_window);
+				
+				//构建algorithm的JsonObject
+				JsonObject algorithmObject = JsonObject.create()
+		                .put("type", "algorithm")
+		                .put("algorithm_id", algorithm_id)
+		                .put("algorithm_name", "kmeans")
+		                .put("algorithm_parameters", parametersObject);
+				
+				jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
+				++algorithm_id;
+			}
 		}
 		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
 	}
@@ -231,5 +237,5 @@ public class InsertDataToDB
 		}
 		return max_id;
 	}
-
+	
 }

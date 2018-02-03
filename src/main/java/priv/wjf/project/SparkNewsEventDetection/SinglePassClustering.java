@@ -27,9 +27,6 @@ public class SinglePassClustering
 		
 		for(NewsFeature feature : featureList) {
 			double maxSim = Double.NEGATIVE_INFINITY;
-			
-			int id = feature.getId();
-			long startTime = feature.getTime();
 			Vector vector = feature.getVector();
 			
 			for(Event event : queue) {
@@ -50,9 +47,8 @@ public class SinglePassClustering
 				Event event = new Event(feature);
 				
 				//将queue中超过时间窗口的event移出，并加到resultEventList中
-				//一天的毫秒数为86400005
 				while(!queue.isEmpty()
-						&& !withinTimeWindow(queue.peek().getStartTime(), event.getStartTime(), timeWindow_millisecond)) {
+						&& (event.getStartTime() - queue.peek().getStartTime() > timeWindow_millisecond)) {
 						resultEventList.add( queue.poll() );
 				}
 				queue.add(event);
@@ -64,46 +60,12 @@ public class SinglePassClustering
 			resultEventList.add( queue.poll() );
 		}
 		
-		//设置每一个Event的结束时间
+		//设置每一个Event的开始和结束时间
 		for(Event event : resultEventList) {
-			event.setEndTime();
+			event.setStartAndEndTime();
 		}
 		
 		return resultEventList;
-	}
-	
-	/**
-	 * 
-	 * @param startTime 
-	 * @param endTime
-	 * @param windowTime 时间窗口，毫秒
-	 * @return startTime是否在时间窗口内
-	 */
-	private static boolean withinTimeWindow(long startTime, long endTime, long windowTime) {
-		//起始日期
-		long year = startTime / 100000000;
-		long month = (startTime % 100000000) / 1000000;
-		long date = (startTime % 1000000) / 10000;
-		long hourOfDay = (startTime % 10000) / 100;
-		long minute = startTime % 100;
-		Calendar startCalendar = Calendar.getInstance();
-		startCalendar.set((int)year, (int)month-1, (int)date, (int)hourOfDay, (int)minute);
-		
-		//结束日期
-		year = endTime / 100000000;
-		month = (endTime % 100000000) / 1000000;
-		date = (endTime % 1000000) / 10000;
-		hourOfDay = (endTime % 10000) / 100;
-		minute = endTime % 100;
-		Calendar endCalendar = Calendar.getInstance();
-		endCalendar.set((int)year, (int)month-1, (int)date, (int)hourOfDay, (int)minute);
-		
-		long milliseconds = endCalendar.getTimeInMillis() - startCalendar.getTimeInMillis();
-		
-		if(milliseconds > windowTime) {
-			return false;
-		}
-		return true;
 	}
 	
 }

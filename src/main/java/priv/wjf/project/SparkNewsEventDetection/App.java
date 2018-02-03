@@ -55,10 +55,11 @@ public class App
 	private static String news_category =  "gn";
 	
 	//算法参数
-	private static double singlePassThreshold = 0.2;
-	private static int singlePassTimeWindow_hour = 24;		//单位：小时
+	private static double single_pass_threshold = 0.2;
+	private static int single_pass_time_window = 24;		//单位：小时
 	
 	private static int kmeans_cluster_number = 200;
+	private static int kmeans_time_window = 24;		//单位：小时
 	
 	
 	static
@@ -98,8 +99,8 @@ public class App
 	private static void singlePass_detecte_event()
 	{
 		//进行事件检测的起始时间和结束时间
-		long startTime = 201711010000L;
-		long endTime = 201711302359L;
+		long startTime = TimeConversion.getMilliseconds("201711010000");
+		long endTime = TimeConversion.getMilliseconds("201711302359");
 		
 		//查询指定的新闻
 		Statement statement = select("n.news_id", "n.news_time", "n.news_content")
@@ -148,7 +149,7 @@ public class App
 		}
 		
 		//singlePass聚类
-		List<Event> resultEventList = SinglePassClustering.singlePass(featureList, singlePassThreshold, singlePassTimeWindow_hour);
+		List<Event> resultEventList = SinglePassClustering.singlePass(featureList, single_pass_threshold, single_pass_time_window);
 		
 		int algorithm_id = getAlgorithm_id("single_pass");
 		if(algorithm_id == -1) {
@@ -161,16 +162,85 @@ public class App
 	
 	private static void kmeans_detecte_event() 
 	{
-		int days = 30;
+		List<Event> resultEventList = new ArrayList<Event>();
 		
+		long inc = kmeans_time_window * 60 * 60 * 1000;
+		long startTime = TimeConversion.getMilliseconds("201711010000");
+		long endTime = TimeConversion.getMilliseconds("201711302359");
+
+		while(startTime + inc <= endTime) {
+			//查询指定的新闻
+			Statement statement = select("news_id", "news_time", "news_content")
+					.from(i(bucketName))
+					.where( x("news_category").eq(s(news_category)).and( x("news_time").between( x(startTime).and(x(startTime + inc)) ) ) );
+			N1qlQuery query = N1qlQuery.simple(statement);
+			
+			startTime += (inc + 1);
+			
+			N1qlQueryResult result = bucket.query(query);
+			List<N1qlQueryRow> resultRowList = result.allRows();
+			
+			//获取查询结果中每一篇新闻的id, time, content
+			List<Integer> idList = new ArrayList<Integer>();
+			List<Long> timeList = new ArrayList<Long>();
+			List<String> contentList = new ArrayList<String>();
+			for(N1qlQueryRow row : resultRowList) {
+				JsonObject newsObject = row.value();
+				idList.add( newsObject.getInt("news_id") );
+				timeList.add( newsObject.getLong("news_time") );
+				contentList.add( newsObject.getString("news_content") );
+			}
+			
+			JavaRDD<String> contentRDD = sc.parallelize(contentList);
+			
+			//分词
+			JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
+				return WordSegmentation.FNLPSegment(content);
+			});
 		
-		//查询指定的新闻
-		Statement statement = select("news_id", "news_time", "news_content")
-				.from(i(bucketName))
-				.where( x("news_category").eq(s(news_category)).and( x("news_time").between( x(startTime).and(x(endTime)) ) ) ) );
-		N1qlQuery query = N1qlQuery.simple(statement);
+			//tf-idf特征向量
+			JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+			
+			//特征降维
+			vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
+			
+			//归一化
+			Normalizer normalizer = new Normalizer();
+			vectorRDD = normalizer.transform(vectorRDD);
+			
+			List<Vector> vectorList = vectorRDD.collect();
+
+			//KMeans
+			int numIterations = 30;
+			int runs = 3;
+			KMeansModel kMeansModel = KMeans.train(vectorRDD.rdd(), kmeans_cluster_number, numIterations, runs);
+			JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( vectorRDD );
+			
+			List<Integer> clusterResult = clusterResultRDD.collect();
+			Map<Integer, Event> map = new HashMap<Integer, Event>();
+			for(int i=0 ; i<clusterResult.size() ; ++i) {
+				int clusterId = clusterResult.get(i);
+				NewsFeature feature = new NewsFeature(idList.get(i), timeList.get(i), vectorList.get(i));
+				if(map.containsKey(clusterId)) {
+					map.get(clusterId).addFeature(feature);
+				}else {
+					map.put(clusterId, new Event(feature));
+				}
+			}
+			
+			for(Event event : map.values()) {
+				event.resetCenterVector();
+				event.setStartAndEndTime();
+				resultEventList.add(event);
+			}
+		}
 		
-		
+		int algorithm_id = getAlgorithm_id("kmeans");
+		if(algorithm_id == -1) {
+			return;
+		}
+
+		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
 	}
 	
 	
@@ -183,10 +253,11 @@ public class App
 	{
 		Expression expression = x("algorithm_name").eq(s(algorithm_name));
 		if(algorithm_name.equals("single_pass")) {
-			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(singlePassThreshold) ) )
-					.and( x("algorithm_parameters.time_window").eq( x(singlePassTimeWindow_hour) ) );
+			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(single_pass_threshold) ) )
+					.and( x("algorithm_parameters.time_window").eq( x(single_pass_time_window) ) );
 		}else if(algorithm_name.equals("kmeans")) {
-			expression = expression.and( x("algorithm_parameters.cluster_number").eq( x(kmeans_cluster_number) ) );
+			expression = expression.and( x("algorithm_parameters.cluster_number").eq( x(kmeans_cluster_number) ) )
+					.and( x("algorithm_parameters.time_window").eq( x(kmeans_time_window) ) );
 		}
 		
 		//根据算法参数查询algorithm_id

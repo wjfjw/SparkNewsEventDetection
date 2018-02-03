@@ -18,7 +18,7 @@ public class Event
 		featureList.add(feature);
 		this.centerVector = feature.getVector();
 		this.startTime = feature.getTime();
-		this.endTime = Long.MAX_VALUE;
+		this.endTime = feature.getTime();
 	}
 
 	public long getStartTime() {
@@ -29,9 +29,14 @@ public class Event
 		return endTime;
 	}
 	
-	public void setEndTime() {
-		int size = featureList.size();
-		long endTime = featureList.get(size-1).getTime();
+	public void setStartAndEndTime() {
+		long startTime = Long.MAX_VALUE;
+		long endTime = Long.MIN_VALUE;
+		for(NewsFeature feature : featureList) {
+			startTime = Math.min(startTime, feature.getTime());
+			endTime = Math.max(endTime, feature.getTime());
+		}
+		this.startTime = startTime;
 		this.endTime = endTime;
 	}
 	
