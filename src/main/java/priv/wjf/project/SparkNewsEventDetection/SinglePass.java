@@ -16,9 +16,9 @@ import org.apache.spark.mllib.linalg.Vector;
  *
  */
 
-public class SinglePassClustering 
+public class SinglePass 
 {
-	public static List<Event> singlePass(List<NewsFeature> featureList , double simThreshold, int timeWindow_hour) 
+	public static List<Event> singlePassClustering(List<NewsFeature> featureList , double simThreshold, int timeWindow_hour) 
 	{
 		long timeWindow_millisecond = (long)timeWindow_hour * 60 * 60 * 1000;
 		List<Event> resultEventList = new ArrayList<Event>();
@@ -66,6 +66,40 @@ public class SinglePassClustering
 		}
 		
 		return resultEventList;
+	}
+	
+	
+	public static List<Topic> singlePassTracking(List<Event> eventList , double simThreshold)
+	{
+		List<Topic> resultTopicList = new ArrayList<Topic>();
+
+		Topic maxSimTopic = null;
+		
+		for(Event event : eventList) {
+			double maxSim = Double.NEGATIVE_INFINITY;
+			Vector vector = event.getCenterVector();
+			
+			for(Topic topic : resultTopicList) {
+				double sim = Similarity.getCosineSimilarity(vector, topic.getCenterVector());
+				if(sim > maxSim) {
+					maxSim = sim;
+					maxSimTopic = topic;
+				}
+			}
+			
+			//如果最大相似度大于simThreshold，则将该event加入对应的topic
+			if(maxSim > simThreshold) {
+				maxSimTopic.addEvent(event);
+				maxSimTopic.resetCenterVector();
+			}
+			//否则，根据该event创建一个新的topic，并加入到resultTopicList中
+			else {
+				Topic topic = new Topic(event);
+				resultTopicList.add(topic);
+			}
+		}
+		
+		return resultTopicList;
 	}
 	
 }

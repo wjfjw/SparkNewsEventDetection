@@ -43,7 +43,7 @@ public class InsertDataToDB
 		Bucket bucket = cluster.openBucket(bucketName);
 		
 		//将新闻数据存储到数据库中
-		insertNews(sc, bucket);
+		insertAlgorithm(sc, bucket);
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -123,48 +123,11 @@ public class InsertDataToDB
 	
 	
 	/**
-	 * 将事件存储到数据库中
-	 * @param resultEventList
-	 * @param algorithm_id
-	 */
-	public static void insertEvent(
-			JavaSparkContext sc, Bucket bucket, List<Event> resultEventList, int algorithm_id, String event_category) 
-	{
-		//获取当前可用的event_id
-		int event_id = getMaxId(bucket, "event_id") + 1;
-		
-		//将event存储到数据库中
-		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
-		
-		for(Event event : resultEventList) {
-			//构建事件的新闻id的JsonArray
-			JsonArray newsIdArray = JsonArray.create();
-			for(NewsFeature feature : event.getFeatureList()) {
-				newsIdArray.add(feature.getId());
-			}
-			//构建事件的JsonObject
-			JsonObject eventObject = JsonObject.create()
-					.put("type", "event")
-					.put("event_id", event_id)
-					.put("event_start_time", event.getStartTime())
-					.put("event_end_time", event.getEndTime())
-					.put("event_news_list", newsIdArray)
-					.put("event_algorithm", algorithm_id)
-					.put("event_category", event_category);
-			
-			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
-			++event_id;
-		}
-		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
-	}
-	
-	
-	/**
 	 * 将算法存储到数据库中
 	 */
 	private static void insertAlgorithm(JavaSparkContext sc, Bucket bucket)
 	{
-		double[] singlePass_similarity_threshold = {0.1, 0.2, 0.3, 0.4, 0.5};
+		double[] singlePass_similarity_threshold = {0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8};
 		int[] singlePass_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
@@ -213,6 +176,75 @@ public class InsertDataToDB
 			}
 		}
 		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
+	}
+	
+	
+	/**
+	 * 将事件存储到数据库中
+	 * @param resultEventList
+	 * @param algorithm_id
+	 */
+	public static List<Integer> eventIdList insertEvent(
+			JavaSparkContext sc, Bucket bucket, List<Event> resultEventList, int algorithm_id, String event_category) 
+	{
+		//获取当前可用的event_id
+		int event_id = getMaxId(bucket, "event_id") + 1;
+		
+		//将event存储到数据库中
+		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
+		
+		for(Event event : resultEventList) {
+			//构建事件的新闻id的JsonArray
+			JsonArray newsIdArray = JsonArray.create();
+			for(NewsFeature feature : event.getFeatureList()) {
+				newsIdArray.add(feature.getId());
+			}
+			//构建事件的JsonObject
+			JsonObject eventObject = JsonObject.create()
+					.put("type", "event")
+					.put("event_id", event_id)
+					.put("event_start_time", event.getStartTime())
+					.put("event_end_time", event.getEndTime())
+					.put("event_news_list", newsIdArray)
+					.put("event_algorithm", algorithm_id)
+					.put("event_category", event_category);
+			
+			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
+			++event_id;
+		}
+		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
+	}
+	
+	
+	public static void insertTopic(
+			JavaSparkContext sc, Bucket bucket, List<Topic> resultTopicList, String topic_category) 
+	{
+		//获取当前可用的topic_id
+		int topic_id = getMaxId(bucket, "topic_id") + 1;
+		
+		//将topic存储到数据库中
+		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
+		
+		for(Topic topic : resultTopicList) {
+			//构建topic的event_id的JsonArray
+			JsonArray eventIdArray = JsonArray.create();
+			for(Event event : topic.getFeatureList()) {
+				newsIdArray.add(feature.getId());
+			}
+			//构建事件的JsonObject
+			JsonObject eventObject = JsonObject.create()
+					.put("type", "event")
+					.put("event_id", event_id)
+					.put("event_start_time", event.getStartTime())
+					.put("event_end_time", event.getEndTime())
+					.put("event_news_list", newsIdArray)
+					.put("event_algorithm", algorithm_id)
+					.put("event_category", event_category);
+			
+			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
+			++event_id;
+		}
+		
 	}
 	
 	

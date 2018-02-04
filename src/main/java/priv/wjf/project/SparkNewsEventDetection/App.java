@@ -55,11 +55,13 @@ public class App
 	private static String news_category =  "gn";
 	
 	//算法参数
-	private static double single_pass_threshold = 0.2;
+	private static double single_pass_clustering_threshold = 0.45;
 	private static int single_pass_time_window = 24;		//单位：小时
 	
-	private static int kmeans_cluster_number = 200;
+	private static int kmeans_cluster_number = 100;
 	private static int kmeans_time_window = 24;		//单位：小时
+	
+	private static double topic_tracking_threshold = 0.3;
 	
 	
 	static
@@ -80,7 +82,7 @@ public class App
 		bucket = cluster.openBucket(bucketName);
 		
 		//进行新闻事件检测
-		singlePass_detecte_event();
+		kmeans_detecte_event();
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -88,6 +90,51 @@ public class App
         //断开数据库连接
         bucket.close();
         cluster.disconnect();
+	}
+	
+	
+	private static void test() 
+	{
+		//进行事件检测的起始时间和结束时间
+		long startTime = TimeConversion.getMilliseconds("201711010000");
+		long endTime = TimeConversion.getMilliseconds("201711012359");
+		
+		//查询指定的新闻
+		Statement statement = select("n.news_content")
+				.from(i(bucketName).as("n"))
+				.where( x("n.news_category").eq(s(news_category)).and( x("n.news_time").between( x(startTime).and(x(endTime)) ) ) )
+				.orderBy(Sort.asc("n.news_time"))
+				.limit(15);
+		N1qlQuery query = N1qlQuery.simple(statement);
+		N1qlQueryResult result = bucket.query(query);
+		List<N1qlQueryRow> resultRowList = result.allRows();
+		
+		List<String> contentList = new ArrayList<String>();
+		for(N1qlQueryRow row : resultRowList) {
+			JsonObject newsObject = row.value();
+			contentList.add( newsObject.getString("news_content") );
+		}
+		
+		JavaRDD<String> contentRDD = sc.parallelize(contentList);
+		
+		//分词
+		JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
+			return WordSegmentation.FNLPSegment(content);
+		});
+	
+		//tf-idf特征向量
+		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+		
+		//特征降维
+		vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
+		
+		List<Vector> vectorList = vectorRDD.collect();
+		
+		for(int i=0 ; i<vectorList.size() ; ++i) {
+			for(int j=i+1 ; j<vectorList.size() ; ++j) {
+				System.out.println(Similarity.getCosineSimilarity(vectorList.get(i), vectorList.get(j)));
+			}
+		}
 	}
 	
 	
@@ -135,10 +182,10 @@ public class App
 		});
 	
 		//tf-idf特征向量
-		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2500, contentWordsRDD);
 		
-//		//特征降维
-//		vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
+		//特征降维
+		vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 250);
 		
 		List<Vector> vectorList = vectorRDD.collect();
 		
@@ -149,7 +196,7 @@ public class App
 		}
 		
 		//singlePass聚类
-		List<Event> resultEventList = SinglePassClustering.singlePass(featureList, single_pass_threshold, single_pass_time_window);
+		List<Event> resultEventList = SinglePass.singlePassClustering(featureList, single_pass_clustering_threshold, single_pass_time_window);
 		
 		int algorithm_id = getAlgorithm_id("single_pass");
 		if(algorithm_id == -1) {
@@ -157,6 +204,11 @@ public class App
 		}
 
 		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
+		
+		//话题追踪
+		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, topic_tracking_threshold);
+		
+		
 	}
 	
 	
@@ -199,10 +251,10 @@ public class App
 			});
 		
 			//tf-idf特征向量
-			JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
+			JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2500, contentWordsRDD);
 			
 			//特征降维
-			vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
+			vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 250);
 			
 			//归一化
 			Normalizer normalizer = new Normalizer();
@@ -241,6 +293,16 @@ public class App
 		}
 
 		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
+		
+		
+		
+		//话题追踪
+		resultEventList.sort( (Event e1, Event e2) -> {
+			return (int)(e1.getStartTime() - e2.getStartTime());
+		});
+		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, topic_tracking_threshold);
+		
+		
 	}
 	
 	
@@ -253,7 +315,7 @@ public class App
 	{
 		Expression expression = x("algorithm_name").eq(s(algorithm_name));
 		if(algorithm_name.equals("single_pass")) {
-			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(single_pass_threshold) ) )
+			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(single_pass_clustering_threshold) ) )
 					.and( x("algorithm_parameters.time_window").eq( x(single_pass_time_window) ) );
 		}else if(algorithm_name.equals("kmeans")) {
 			expression = expression.and( x("algorithm_parameters.cluster_number").eq( x(kmeans_cluster_number) ) )
