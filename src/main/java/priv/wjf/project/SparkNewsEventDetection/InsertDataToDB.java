@@ -133,6 +133,8 @@ public class InsertDataToDB
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
 		int[] kmeans_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
+		double[] topic_tracking_threshold = {0.05, 0.1, 0.15, 0.2};
+		
 		//获取当前可用的algorithm_id
 		int algorithm_id = getMaxId(bucket, "algorithm_id") + 1;
 		
@@ -143,7 +145,8 @@ public class InsertDataToDB
 				//构建parameters的JsonObject
 				JsonObject parametersObject = JsonObject.create()
 						.put("similarity_threshold", similarity_threshold)
-						.put("time_window", time_window);
+						.put("time_window", time_window)
+						.put("topic_tracking_threshold", topic_tracking_threshold);
 				
 				//构建algorithm的JsonObject
 				JsonObject algorithmObject = JsonObject.create()
@@ -162,7 +165,8 @@ public class InsertDataToDB
 				//构建parameters的JsonObject
 				JsonObject parametersObject = JsonObject.create()
 						.put("cluster_number", cluster_number)
-						.put("time_window", time_window);
+						.put("time_window", time_window)
+						.put("topic_tracking_threshold", topic_tracking_threshold);
 				
 				//构建algorithm的JsonObject
 				JsonObject algorithmObject = JsonObject.create()
@@ -184,11 +188,13 @@ public class InsertDataToDB
 	 * @param resultEventList
 	 * @param algorithm_id
 	 */
-	public static List<Integer> eventIdList insertEvent(
+	public static List<Integer> insertEvent(
 			JavaSparkContext sc, Bucket bucket, List<Event> resultEventList, int algorithm_id, String event_category) 
 	{
 		//获取当前可用的event_id
 		int event_id = getMaxId(bucket, "event_id") + 1;
+		
+		List<Integer> eventIdList = new ArrayList<Integer>();
 		
 		//将event存储到数据库中
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
@@ -210,14 +216,17 @@ public class InsertDataToDB
 					.put("event_category", event_category);
 			
 			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
+			eventIdList.add(event_id);
 			++event_id;
 		}
 		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
+		
+		return eventIdList;
 	}
 	
 	
 	public static void insertTopic(
-			JavaSparkContext sc, Bucket bucket, List<Topic> resultTopicList, String topic_category) 
+			JavaSparkContext sc, Bucket bucket, List<Topic> resultTopicList, int algorithm_id, String topic_category) 
 	{
 		//获取当前可用的topic_id
 		int topic_id = getMaxId(bucket, "topic_id") + 1;
@@ -228,23 +237,21 @@ public class InsertDataToDB
 		for(Topic topic : resultTopicList) {
 			//构建topic的event_id的JsonArray
 			JsonArray eventIdArray = JsonArray.create();
-			for(Event event : topic.getFeatureList()) {
-				newsIdArray.add(feature.getId());
+			for(int event_id : topic.getEventIdList()) {
+				eventIdArray.add(event_id);
 			}
-			//构建事件的JsonObject
-			JsonObject eventObject = JsonObject.create()
-					.put("type", "event")
-					.put("event_id", event_id)
-					.put("event_start_time", event.getStartTime())
-					.put("event_end_time", event.getEndTime())
-					.put("event_news_list", newsIdArray)
-					.put("event_algorithm", algorithm_id)
-					.put("event_category", event_category);
+			//构建topic的JsonObject
+			JsonObject topicObject = JsonObject.create()
+					.put("type", "topic")
+					.put("topic_id", topic_id)
+					.put("topic_event_list", eventIdArray)
+					.put("topic_algorithm", algorithm_id)
+					.put("topic_category", topic_category);
 			
-			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
-			++event_id;
+			jsonDocumentList.add( JsonDocument.create("topic_" + topic_id, topicObject) );
+			++topic_id;
 		}
-		
+		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
 	}
 	
 	

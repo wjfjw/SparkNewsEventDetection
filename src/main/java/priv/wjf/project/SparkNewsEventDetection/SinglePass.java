@@ -69,13 +69,16 @@ public class SinglePass
 	}
 	
 	
-	public static List<Topic> singlePassTracking(List<Event> eventList , double simThreshold)
+	public static List<Topic> singlePassTracking(List<Event> eventList, List<Integer> eventIdList, double simThreshold)
 	{
 		List<Topic> resultTopicList = new ArrayList<Topic>();
 
 		Topic maxSimTopic = null;
 		
-		for(Event event : eventList) {
+		for(int i=0 ; i<eventList.size() ; ++i) {
+			Event event = eventList.get(i);
+			int eventId = eventIdList.get(i);
+			
 			double maxSim = Double.NEGATIVE_INFINITY;
 			Vector vector = event.getCenterVector();
 			
@@ -94,7 +97,7 @@ public class SinglePass
 			}
 			//否则，根据该event创建一个新的topic，并加入到resultTopicList中
 			else {
-				Topic topic = new Topic(event);
+				Topic topic = new Topic(event, eventId);
 				resultTopicList.add(topic);
 			}
 		}

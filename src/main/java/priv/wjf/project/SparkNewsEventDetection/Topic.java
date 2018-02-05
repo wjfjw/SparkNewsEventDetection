@@ -9,14 +9,19 @@ import org.apache.spark.mllib.linalg.Vector;
 public class Topic 
 {
 	private List<Event> eventList;
+	private List<Integer> eventIdList;
 	private Vector centerVector;
 	
-	public Topic(Event event) {
+	public Topic(Event event, int eventId) {
 		eventList = new ArrayList<Event>();
 		eventList.add(event);
+		
+		eventIdList = new ArrayList<Integer>();
+		eventIdList.add(eventId);
 		this.centerVector = event.getCenterVector();
 	}
 	
+	//eventList
 	public List<Event> getEventList() {
 		return eventList;
 	}
@@ -25,6 +30,16 @@ public class Topic
 		eventList.add(event);
 	}
 	
+	//eventIdList
+	public List<Integer> getEventIdList() {
+		return eventIdList;
+	}
+	
+	public void addEventId(int eventId) {
+		eventIdList.add(eventId);
+	}
+	
+	//centerVector
 	public Vector getCenterVector() {
 		return centerVector;
 	}

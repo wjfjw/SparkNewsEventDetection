@@ -61,7 +61,7 @@ public class App
 	private static int kmeans_cluster_number = 100;
 	private static int kmeans_time_window = 24;		//单位：小时
 	
-	private static double topic_tracking_threshold = 0.3;
+	private static double topic_tracking_threshold = 0.1;
 	
 	
 	static
@@ -82,7 +82,7 @@ public class App
 		bucket = cluster.openBucket(bucketName);
 		
 		//进行新闻事件检测
-		kmeans_detecte_event();
+		singlePass_detecte_event();
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -202,13 +202,14 @@ public class App
 		if(algorithm_id == -1) {
 			return;
 		}
-
-		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
+		//存储到数据库中
+		List<Integer> eventIdList = InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
+		
 		
 		//话题追踪
-		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, topic_tracking_threshold);
-		
-		
+		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, eventIdList, topic_tracking_threshold);
+		//存储到数据库中
+		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, news_category);
 	}
 	
 	
@@ -220,7 +221,7 @@ public class App
 		long startTime = TimeConversion.getMilliseconds("201711010000");
 		long endTime = TimeConversion.getMilliseconds("201711302359");
 
-		while(startTime + inc <= endTime) {
+		while(startTime < endTime) {
 			//查询指定的新闻
 			Statement statement = select("news_id", "news_time", "news_content")
 					.from(i(bucketName))
@@ -291,18 +292,16 @@ public class App
 		if(algorithm_id == -1) {
 			return;
 		}
-
-		InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
-		
-		
+		//存储到数据库中
+		List<Integer> eventIdList = InsertDataToDB.insertEvent(sc, bucket, resultEventList, algorithm_id, news_category);
 		
 		//话题追踪
 		resultEventList.sort( (Event e1, Event e2) -> {
 			return (int)(e1.getStartTime() - e2.getStartTime());
 		});
-		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, topic_tracking_threshold);
-		
-		
+		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, eventIdList, topic_tracking_threshold);
+		//存储到数据库中
+		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, news_category);
 	}
 	
 	
