@@ -13,6 +13,9 @@ public class Event
 	private long startTime;
 	private long endTime;
 	
+	private String title;
+	private String summary;
+	
 	public Event(NewsFeature feature) {
 		featureList = new ArrayList<NewsFeature>();
 		featureList.add(feature);

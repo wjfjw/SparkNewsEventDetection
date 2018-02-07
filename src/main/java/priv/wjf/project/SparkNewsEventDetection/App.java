@@ -1,13 +1,9 @@
 package priv.wjf.project.SparkNewsEventDetection;
 
-import java.io.StringReader;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -18,13 +14,10 @@ import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.feature.Normalizer;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.mllib.linalg.Vector;
-import org.apache.spark.storage.StorageLevel;
 
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.CouchbaseCluster;
-import com.couchbase.client.java.document.JsonDocument;
-import com.couchbase.client.java.document.json.JsonArray;
 import com.couchbase.client.java.document.json.JsonObject;
 import com.couchbase.client.java.query.N1qlQuery;
 import com.couchbase.client.java.query.N1qlQueryResult;
@@ -39,7 +32,6 @@ import static com.couchbase.client.java.query.Select.select;
 import static com.couchbase.client.java.query.dsl.Expression.i;
 import static com.couchbase.client.java.query.dsl.Expression.s;
 import static com.couchbase.client.java.query.dsl.Expression.x;
-import static com.couchbase.spark.japi.CouchbaseDocumentRDD.couchbaseDocumentRDD;
 
 public class App 
 {
@@ -55,13 +47,16 @@ public class App
 	private static String news_category =  "gn";
 	
 	//算法参数
+	//singlePass
 	private static double single_pass_clustering_threshold = 0.45;
 	private static int single_pass_time_window = 24;		//单位：小时
 	
+	//kmeans
 	private static int kmeans_cluster_number = 100;
 	private static int kmeans_time_window = 24;		//单位：小时
 	
-	private static double topic_tracking_threshold = 0.1;
+	//topic tracking
+	private static double topic_tracking_threshold = 0.5;
 	
 	
 	static
@@ -90,51 +85,6 @@ public class App
         //断开数据库连接
         bucket.close();
         cluster.disconnect();
-	}
-	
-	
-	private static void test() 
-	{
-		//进行事件检测的起始时间和结束时间
-		long startTime = TimeConversion.getMilliseconds("201711010000");
-		long endTime = TimeConversion.getMilliseconds("201711012359");
-		
-		//查询指定的新闻
-		Statement statement = select("n.news_content")
-				.from(i(bucketName).as("n"))
-				.where( x("n.news_category").eq(s(news_category)).and( x("n.news_time").between( x(startTime).and(x(endTime)) ) ) )
-				.orderBy(Sort.asc("n.news_time"))
-				.limit(15);
-		N1qlQuery query = N1qlQuery.simple(statement);
-		N1qlQueryResult result = bucket.query(query);
-		List<N1qlQueryRow> resultRowList = result.allRows();
-		
-		List<String> contentList = new ArrayList<String>();
-		for(N1qlQueryRow row : resultRowList) {
-			JsonObject newsObject = row.value();
-			contentList.add( newsObject.getString("news_content") );
-		}
-		
-		JavaRDD<String> contentRDD = sc.parallelize(contentList);
-		
-		//分词
-		JavaRDD<List<String>> contentWordsRDD = contentRDD.map( (String content)-> {
-			return WordSegmentation.FNLPSegment(content);
-		});
-	
-		//tf-idf特征向量
-		JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2000, contentWordsRDD);
-		
-		//特征降维
-		vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 200);
-		
-		List<Vector> vectorList = vectorRDD.collect();
-		
-		for(int i=0 ; i<vectorList.size() ; ++i) {
-			for(int j=i+1 ; j<vectorList.size() ; ++j) {
-				System.out.println(Similarity.getCosineSimilarity(vectorList.get(i), vectorList.get(j)));
-			}
-		}
 	}
 	
 	
@@ -209,7 +159,7 @@ public class App
 		//话题追踪
 		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, eventIdList, topic_tracking_threshold);
 		//存储到数据库中
-		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, news_category);
+		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, algorithm_id, news_category);
 	}
 	
 	
@@ -301,7 +251,7 @@ public class App
 		});
 		List<Topic> resultTopicList = SinglePass.singlePassTracking(resultEventList, eventIdList, topic_tracking_threshold);
 		//存储到数据库中
-		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, news_category);
+		InsertDataToDB.insertTopic(sc, bucket, resultTopicList, algorithm_id, news_category);
 	}
 	
 	
@@ -315,10 +265,12 @@ public class App
 		Expression expression = x("algorithm_name").eq(s(algorithm_name));
 		if(algorithm_name.equals("single_pass")) {
 			expression = expression.and( x("algorithm_parameters.similarity_threshold").eq( x(single_pass_clustering_threshold) ) )
-					.and( x("algorithm_parameters.time_window").eq( x(single_pass_time_window) ) );
+					.and( x("algorithm_parameters.time_window").eq( x(single_pass_time_window) ) )
+					.and( x("algorithm_parameters.topic_tracking_threshold").eq( x(topic_tracking_threshold) ) );
 		}else if(algorithm_name.equals("kmeans")) {
 			expression = expression.and( x("algorithm_parameters.cluster_number").eq( x(kmeans_cluster_number) ) )
-					.and( x("algorithm_parameters.time_window").eq( x(kmeans_time_window) ) );
+					.and( x("algorithm_parameters.time_window").eq( x(kmeans_time_window) ) )
+					.and( x("algorithm_parameters.topic_tracking_threshold").eq( x(topic_tracking_threshold) ) );
 		}
 		
 		//根据算法参数查询algorithm_id

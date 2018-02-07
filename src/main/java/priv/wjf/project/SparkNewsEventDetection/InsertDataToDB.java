@@ -133,7 +133,7 @@ public class InsertDataToDB
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
 		int[] kmeans_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
-		double[] topic_tracking_threshold = {0.05, 0.1, 0.15, 0.2};
+		double[] topic_tracking_threshold_array = {0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6};
 		
 		//获取当前可用的algorithm_id
 		int algorithm_id = getMaxId(bucket, "algorithm_id") + 1;
@@ -142,41 +142,45 @@ public class InsertDataToDB
 		
 		for(double similarity_threshold : singlePass_similarity_threshold) {
 			for(int time_window : singlePass_time_window) {
-				//构建parameters的JsonObject
-				JsonObject parametersObject = JsonObject.create()
-						.put("similarity_threshold", similarity_threshold)
-						.put("time_window", time_window)
-						.put("topic_tracking_threshold", topic_tracking_threshold);
-				
-				//构建algorithm的JsonObject
-				JsonObject algorithmObject = JsonObject.create()
-		                .put("type", "algorithm")
-		                .put("algorithm_id", algorithm_id)
-		                .put("algorithm_name", "single_pass")
-		                .put("algorithm_parameters", parametersObject);
-				
-				jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
-				++algorithm_id;
+				for(double topic_tracking_threshold : topic_tracking_threshold_array){
+					//构建parameters的JsonObject
+					JsonObject parametersObject = JsonObject.create()
+							.put("similarity_threshold", similarity_threshold)
+							.put("time_window", time_window)
+							.put("topic_tracking_threshold", topic_tracking_threshold);
+					
+					//构建algorithm的JsonObject
+					JsonObject algorithmObject = JsonObject.create()
+			                .put("type", "algorithm")
+			                .put("algorithm_id", algorithm_id)
+			                .put("algorithm_name", "single_pass")
+			                .put("algorithm_parameters", parametersObject);
+					
+					jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
+					++algorithm_id;
+				}
 			}
 		}
 		
 		for(int cluster_number : kmeans_cluster_number) {
 			for(int time_window : kmeans_time_window) {
-				//构建parameters的JsonObject
-				JsonObject parametersObject = JsonObject.create()
-						.put("cluster_number", cluster_number)
-						.put("time_window", time_window)
-						.put("topic_tracking_threshold", topic_tracking_threshold);
-				
-				//构建algorithm的JsonObject
-				JsonObject algorithmObject = JsonObject.create()
-		                .put("type", "algorithm")
-		                .put("algorithm_id", algorithm_id)
-		                .put("algorithm_name", "kmeans")
-		                .put("algorithm_parameters", parametersObject);
-				
-				jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
-				++algorithm_id;
+				for(double topic_tracking_threshold : topic_tracking_threshold_array){
+					//构建parameters的JsonObject
+					JsonObject parametersObject = JsonObject.create()
+							.put("cluster_number", cluster_number)
+							.put("time_window", time_window)
+							.put("topic_tracking_threshold", topic_tracking_threshold);
+					
+					//构建algorithm的JsonObject
+					JsonObject algorithmObject = JsonObject.create()
+			                .put("type", "algorithm")
+			                .put("algorithm_id", algorithm_id)
+			                .put("algorithm_name", "kmeans")
+			                .put("algorithm_parameters", parametersObject);
+					
+					jsonDocumentList.add( JsonDocument.create("algorithm_"+algorithm_id, algorithmObject) );
+					++algorithm_id;
+				}
 			}
 		}
 		couchbaseDocumentRDD( sc.parallelize(jsonDocumentList) ).saveToCouchbase();
@@ -212,8 +216,7 @@ public class InsertDataToDB
 					.put("event_start_time", event.getStartTime())
 					.put("event_end_time", event.getEndTime())
 					.put("event_news_list", newsIdArray)
-					.put("event_algorithm", algorithm_id)
-					.put("event_category", event_category);
+					.put("event_algorithm", algorithm_id);
 			
 			jsonDocumentList.add( JsonDocument.create("event_" + event_id, eventObject) );
 			eventIdList.add(event_id);

@@ -93,6 +93,7 @@ public class SinglePass
 			//如果最大相似度大于simThreshold，则将该event加入对应的topic
 			if(maxSim > simThreshold) {
 				maxSimTopic.addEvent(event);
+				maxSimTopic.addEventId(eventId);
 				maxSimTopic.resetCenterVector();
 			}
 			//否则，根据该event创建一个新的topic，并加入到resultTopicList中
