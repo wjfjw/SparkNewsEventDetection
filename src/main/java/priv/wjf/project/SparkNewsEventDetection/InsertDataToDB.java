@@ -42,7 +42,7 @@ public class InsertDataToDB
 		Cluster cluster = CouchbaseCluster.create("localhost");
 		Bucket bucket = cluster.openBucket(bucketName);
 		
-		//将新闻数据存储到数据库中
+		//存储数据
 		insertAlgorithm(sc, bucket);
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
@@ -127,22 +127,19 @@ public class InsertDataToDB
 	 */
 	private static void insertAlgorithm(JavaSparkContext sc, Bucket bucket)
 	{
-		double[] singlePass_similarity_threshold = {0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8};
 		int[] singlePass_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
 		
 		int[] kmeans_cluster_number = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500};
 		int[] kmeans_time_window = {12, 24, 36, 48, 60, 72, 84, 96};
-		
-		double[] topic_tracking_threshold_array = {0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6};
 		
 		//获取当前可用的algorithm_id
 		int algorithm_id = getMaxId(bucket, "algorithm_id") + 1;
 		
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();
 		
-		for(double similarity_threshold : singlePass_similarity_threshold) {
+		for(double similarity_threshold=0.2 ; similarity_threshold<1 ; similarity_threshold+=0.05) {
 			for(int time_window : singlePass_time_window) {
-				for(double topic_tracking_threshold : topic_tracking_threshold_array){
+				for(double topic_tracking_threshold=0.2 ; topic_tracking_threshold<1 ; topic_tracking_threshold+=0.05){
 					//构建parameters的JsonObject
 					JsonObject parametersObject = JsonObject.create()
 							.put("similarity_threshold", similarity_threshold)
@@ -164,7 +161,7 @@ public class InsertDataToDB
 		
 		for(int cluster_number : kmeans_cluster_number) {
 			for(int time_window : kmeans_time_window) {
-				for(double topic_tracking_threshold : topic_tracking_threshold_array){
+				for(double topic_tracking_threshold=0.2 ; topic_tracking_threshold<1 ; topic_tracking_threshold+=0.05){
 					//构建parameters的JsonObject
 					JsonObject parametersObject = JsonObject.create()
 							.put("cluster_number", cluster_number)
