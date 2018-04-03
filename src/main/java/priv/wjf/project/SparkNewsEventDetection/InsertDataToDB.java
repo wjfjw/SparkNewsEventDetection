@@ -34,7 +34,6 @@ public class InsertDataToDB
 		final String bucketName = "newsEventDetection";
 		SparkConf conf = new SparkConf()
 				.setAppName("SparkNewsEventDetection")
-				.setMaster("local")
 				.set("com.couchbase.bucket." + bucketName, "");
 		JavaSparkContext sc = new JavaSparkContext(conf);;
 
@@ -43,6 +42,7 @@ public class InsertDataToDB
 		Bucket bucket = cluster.openBucket(bucketName);
 		
 		//存储数据
+		insertNews(sc, bucket);
 		insertAlgorithm(sc, bucket);
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
@@ -52,14 +52,13 @@ public class InsertDataToDB
         bucket.close();
         cluster.disconnect();
 	}
-
 	
 	
 	/**
 	 * 将新闻数据存储在数据库中
 	 */
 	public static void insertNews(JavaSparkContext sc, Bucket bucket)
-	{
+	{	
 		//新闻格式：id，title,category,url,source,content
 		String inputPath_news = "/home/wjf/Data/de-duplicate/201711/all_summary.csv";
 		List<JsonDocument> jsonDocumentList = new ArrayList<JsonDocument>();

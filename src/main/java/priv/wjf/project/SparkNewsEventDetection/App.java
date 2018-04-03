@@ -48,7 +48,7 @@ public class App
 	
 	//算法参数
 	//singlePass
-	private static double single_pass_clustering_threshold = 0.5;
+	private static double single_pass_clustering_threshold = 0.6;
 	private static int single_pass_time_window = 24;		//单位：小时
 	
 	//kmeans
@@ -56,28 +56,24 @@ public class App
 	private static int kmeans_time_window = 24;		//单位：小时
 	
 	//topic tracking
-	private static double topic_tracking_threshold = 0.7;
-	
-	
-	static
+	private static double topic_tracking_threshold = 0.8;
+
+	public static void main(String[] args) 
 	{
+		//初始化Spark
 		conf = new SparkConf()
 				.setAppName("SparkNewsEventDetection")
-				.setMaster("local")
 				.set("com.couchbase.bucket." + bucketName, "");
 		
 		sc = new JavaSparkContext(conf);
 		csc = CouchbaseSparkContext.couchbaseContext(sc);
-	}
-
-	public static void main(String[] args) 
-	{
+		
 		// Initialize the Connection
 		cluster = CouchbaseCluster.create("localhost");
 		bucket = cluster.openBucket(bucketName);
 		
 		//进行新闻事件检测
-		singlePass_detecte_event();
+		kmeans_detecte_event();
 		
 		// Create a N1QL Primary Index (but ignore if it exists)
         bucket.bucketManager().createN1qlPrimaryIndex(true, false);
@@ -204,8 +200,8 @@ public class App
 			//tf-idf特征向量
 			JavaRDD<Vector> vectorRDD = FeatureExtraction.getTfidfRDD(2500, contentWordsRDD);
 			
-			//特征降维
-			vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 250);
+//			//特征降维
+//			vectorRDD = FeatureExtraction.getPCARDD(vectorRDD, 250);
 			
 			//归一化
 			Normalizer normalizer = new Normalizer();
@@ -215,7 +211,7 @@ public class App
 
 			//KMeans
 			int numIterations = 30;
-			int runs = 3;
+			int runs = 1;
 			KMeansModel kMeansModel = KMeans.train(vectorRDD.rdd(), kmeans_cluster_number, numIterations, runs);
 			JavaRDD<Integer> clusterResultRDD =  kMeansModel.predict( vectorRDD );
 			
